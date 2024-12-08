@@ -182,12 +182,14 @@ class DesktopApp:
 
         self.procesos_activos = {}
         self.cola_calculadora = queue.Queue()
+        self.cola_hora = queue.Queue()
         self.cola_explorador = queue.Queue()
         self.cola_tabla_control = queue.Queue()
 
 
         self.procesos_activos = {}
         self.cola_calculadora = queue.Queue()
+        self.cola_hora = queue.Queue()
         # Crear las ventanas y frames necesarios
         self.create_auth_frame()  # Añadir este frame para autenticación
         self.create_clock_frame()
@@ -196,6 +198,7 @@ class DesktopApp:
         self.create_task_manager_frame()  # Añadir esta línea
         self.create_explorer_frame()
         self.create_calculator_frame()
+        self.create_hora_frame()
 
 
         self.create_welcome_screen()
@@ -416,7 +419,8 @@ class DesktopApp:
         self.explorer_frame = tk.Frame(self.window, bg="lightgray", width=300, height=400)
 
 
-
+    def create_hora_frame(self):
+        self.hora_frame = tk.Frame(self.window, bg="lightgray", width=300, height=400)
 
 
 
@@ -838,7 +842,32 @@ class TaskManager:
         self.frame.pack_forget()
 
 class WorldTimeApp:
+
     def __init__(self, desktop_app):
+        self.desktop_app = desktop_app
+        # Crear una nueva ventana Toplevel
+        self.hora_window = tk.Toplevel(desktop_app.window)
+        self.hora_window.title("Hora Mundial")
+        self.hora_window.geometry("400x200")  # Ajusta al tamaño deseado
+        self.hora_window.protocol("WM_DELETE_WINDOW", self.on_close)
+
+        self.mostrarHoras()
+
+    def mostrarHoras(self):
+        # Añade un label con un mensaje
+        message_label = tk.Label(self.hora_window, text="¡Bienvenido a la Aplicación de Hora Mundial!", font=("Arial", 16))
+        message_label.pack(pady=20)
+
+        # Añadir otro mensaje o información dinámica
+        dynamic_label = tk.Label(self.hora_window, text="Aqui se mostrarán las horas del mundo.", font=("Arial", 14))
+        dynamic_label.pack(pady=20)
+
+    def on_close(self):
+        self.hora_window.destroy()
+
+
+
+        """     def __init__(self, desktop_app):
         self.desktop_app = desktop_app
         self.frame = tk.Frame(desktop_app.window, bg="lightgray", width=300, height=200)
         self.cities = ["America/Grand_Turk", "America/Argentina/Buenos_Aires", "Europe/Madrid", "Asia/Tokyo", "Australia/Sydney"]
@@ -853,11 +882,12 @@ class WorldTimeApp:
         self.thread.start()
         self.desktop_app.procesos_activos["WorldTime"] = {
             "frame": self.frame,
-            "memoria": 50,  # Estimación de uso de memoria
+            "memoria": 50,  
             "hilo": self.thread,
-            "cola": None  # No necesitamos una cola aquí
-        }
+            "cola": None  
+        } """
 
+    
     def update_times(self):
         retry_delay = 5
         max_retries = 3
