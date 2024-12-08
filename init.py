@@ -1,17 +1,18 @@
 import tkinter as tk
-from tkinter import ttk
 import time
 import os
 import threading
 import queue
-import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import os
 import hashlib
 import json
 import threading
 import queue
-import time
+import requests
+from threading import Thread, Event
+
+import math
 
 class Auth:
     def __init__(self):
@@ -396,7 +397,7 @@ class DesktopApp:
 
     def create_menu(self):
         self.menu_frame = tk.Frame(self.window, bg="lightgray", width=200, height=300)
-        programs = ["Calculadora", "Explorador","Administrador de Tareas","Apagar"]
+        programs = ["Calculadora", "Explorador","Administrador de Tareas","Horarios","Apagar"]
         for program in programs:
             if program == "Apagar":
                 button = tk.Button(self.menu_frame, text=program, width=15, height=2, bg="lightgray", relief="groove", command=self.apagar)
@@ -442,6 +443,8 @@ class DesktopApp:
             CalculatorApp(self)
         elif nombre_aplicacion == "Explorador":
             ExplorerApp(self)
+        elif nombre_aplicacion == "Horarios":
+            WorldTimeApp(self)
         elif nombre_aplicacion == "Apagar":
             self.apagar()
 
@@ -464,119 +467,96 @@ class DesktopApp:
         self.window.destroy()
 
 
+
 class CalculatorApp:
     def __init__(self, desktop_app):
         self.desktop_app = desktop_app
         self.cola_calculadora = desktop_app.cola_calculadora
         self.calculator_frame = desktop_app.calculator_frame  # Usar el marco existente
         self.procesos_activos = desktop_app.procesos_activos
-
-
-
-
         self.mostrar_calculadora()
-
-
-
 
     def mostrar_calculadora(self):
         # Limpiar la calculadora antes de mostrarla
         for widget in self.calculator_frame.winfo_children():
             widget.destroy()
 
-
-
-
         self.calculator_frame.pack(side="right", fill="both", padx=10, pady=10)
-
-
-
 
         # Crear el frame superior con el botón de cerrar
         top_frame = tk.Frame(self.calculator_frame, bg="lightgray")
-        top_frame.grid(row=0, column=0, columnspan=4, sticky="we")
+        top_frame.grid(row=0, column=0, columnspan=8, sticky="we")
         close_button = tk.Button(top_frame, text="X", command=self.cerrar_calculadora, bg="red", fg="white", font=("Arial", 12, "bold"))
         close_button.pack(side="right")
 
-
-
-
         # Entrada de texto de la calculadora
-        self.entry = tk.Entry(self.calculator_frame, width=16, font=("Arial", 24), borderwidth=2, relief="solid", justify='right')
-        self.entry.grid(row=1, column=0, columnspan=4, pady=10)
-
-
-
+        self.entry = tk.Entry(self.calculator_frame, width=35, font=("Arial", 18), borderwidth=2, relief="solid", justify='right')
+        self.entry.grid(row=1, column=0, columnspan=8, pady=10)
 
         # Botones de la calculadora
-        buttons = ['7', '8', '9', '/', '4', '5', '6', '*', '1', '2', '3', '-', '0', '.', '=', '+']
+        button_texts = [
+            ('7', '8', '9', '/', 'sqrt', 'sin', 'cos', 'tan'),
+            ('4', '5', '6', '*', '^2', 'log', 'exp', 'pi'),
+            ('1', '2', '3', '-', '^', '(', ')', 'e'),
+            ('0', '.', '=', '+', 'AC', 'C', '%', '1/x')
+        ]
         row_val = 2
-        col_val = 0
-
-
-
-
-        for button in buttons:
-            if button == '=':
-                action = self.calcular_resultado
-            else:
-                action = lambda x=button: self.entry.insert(tk.END, x)
-
-
-
-
-            b = tk.Button(self.calculator_frame, text=button, width=5, height=2, command=action, font=("Arial", 18))
-            b.grid(row=row_val, column=col_val, padx=5, pady=5)
-
-
-
-
-            col_val += 1
-            if col_val > 3:
-                col_val = 0
-                row_val += 1
-
-
-
+        for row in button_texts:
+            col_val = 0
+            for text in row:
+                action = lambda x=text: self.process_button(x)
+                b = tk.Button(self.calculator_frame, text=text, width=5, height=2, command=action, font=("Arial", 14))
+                b.grid(row=row_val, column=col_val, padx=5, pady=5)
+                col_val += 1
+            row_val += 1
 
         # Calcular y actualizar la memoria de la calculadora
         memoria_usada = self.calcular_memoria_calculadora()
         hilo = threading.Thread(target=self.hilo_calculadora, args=(self.cola_calculadora,), daemon=True)
         hilo.start()
-
-
-
-
         self.procesos_activos["Calculadora"] = {"frame": self.calculator_frame, "memoria": memoria_usada, "hilo": hilo, "cola": self.cola_calculadora}
         self.desktop_app.actualizar_procesos_activos()
 
-
-
+    def process_button(self, value):
+        if value == '=':
+            self.calcular_resultado()
+        elif value == 'AC':
+            self.entry.delete(0, tk.END)
+        elif value == 'C':
+            self.entry.delete(len(self.entry.get())-1, tk.END)
+        elif value == 'sqrt':
+            self.entry.insert(tk.END, '**0.5')
+        elif value == '^2':
+            self.entry.insert(tk.END, '**2')
+        elif value == '^':
+            self.entry.insert(tk.END, '**')
+        elif value == 'pi':
+            self.entry.insert(tk.END, str(math.pi))
+        elif value == 'e':
+            self.entry.insert(tk.END, str(math.e))
+        elif value == 'sin':
+            self.entry.insert(tk.END, 'math.sin(')
+        elif value == 'cos':
+            self.entry.insert(tk.END, 'math.cos(')
+        elif value == 'tan':
+            self.entry.insert(tk.END, 'math.tan(')
+        elif value == 'log':
+            self.entry.insert(tk.END, 'math.log(')
+        elif value == 'exp':
+            self.entry.insert(tk.END, 'math.exp(')
+        elif value == '1/x':
+            self.entry.insert(tk.END, '**-1')
+        else:
+            self.entry.insert(tk.END, value)
 
     def calcular_resultado(self):
         try:
-            expression = self.entry.get()
-            result = eval(expression)
+            result = eval(self.entry.get())
             self.entry.delete(0, tk.END)
             self.entry.insert(tk.END, str(result))
         except Exception as e:
             self.entry.delete(0, tk.END)
             self.entry.insert(tk.END, "Error")
-
-
-
-
-    def calcular_memoria_calculadora(self):
-        memoria_base = 20
-        memoria_adicional = 17 * 2
-        if self.calculator_frame.winfo_children():
-            entry = self.calculator_frame.winfo_children()[1]
-            if entry.get():
-                memoria_adicional += len(entry.get()) * 0.5
-        return memoria_base + memoria_adicional
-
-
-
 
     def cerrar_calculadora(self):
         self.cola_calculadora.put("cerrar")
@@ -585,8 +565,10 @@ class CalculatorApp:
             del self.procesos_activos["Calculadora"]
         self.desktop_app.actualizar_procesos_activos()
 
-
-
+    def calcular_memoria_calculadora(self):
+        memoria_base = 20
+        memoria_adicional = len(self.calculator_frame.winfo_children()) * 2
+        return memoria_base + memoria_adicional
 
     def hilo_calculadora(self, cola):
         while True:
@@ -855,8 +837,64 @@ class TaskManager:
     def ocultar(self):
         self.frame.pack_forget()
 
+class WorldTimeApp:
+    def __init__(self, desktop_app):
+        self.desktop_app = desktop_app
+        self.frame = tk.Frame(desktop_app.window, bg="lightgray", width=300, height=200)
+        self.cities = ["America/Grand_Turk", "America/Argentina/Buenos_Aires", "Europe/Madrid", "Asia/Tokyo", "Australia/Sydney"]
+        self.labels = {}
 
+        for city in self.cities:
+            self.labels[city] = tk.Label(self.frame, text=f"Loading time for {city.split('/')[1]}...", bg="lightgray")
+            self.labels[city].pack()
 
+        self.stopped = Event()
+        self.thread = Thread(target=self.update_times)
+        self.thread.start()
+        self.desktop_app.procesos_activos["WorldTime"] = {
+            "frame": self.frame,
+            "memoria": 50,  # Estimación de uso de memoria
+            "hilo": self.thread,
+            "cola": None  # No necesitamos una cola aquí
+        }
+
+    def update_times(self):
+        retry_delay = 5
+        max_retries = 3
+        while not self.stopped.is_set():
+            try:
+                for city in self.cities:
+                    response = self.fetch_data(city, max_retries, retry_delay)
+                    if response:
+                        current_time = response['datetime']
+                        self.labels[city].config(text=f"{city.split('/')[1]}: {current_time}")
+                    else:
+                        self.labels[city].config(text="Failed to load time.")
+            except Exception as e:
+                print("Unexpected error:", e)
+            time.sleep(60)  # Actualiza cada 60 segundos
+
+    def fetch_data(self, city, max_retries, retry_delay):
+        for i in range(max_retries):
+            try:
+                response = requests.get(f"http://worldtimeapi.org/api/timezone/{city}")
+                if response.status_code == 200:
+                    return response.json()
+            except requests.exceptions.RequestException as e:
+                print(f"Error fetching data for {city}: {e}")
+                time.sleep(retry_delay)
+                retry_delay *= 2  # Incrementa el tiempo de espera exponencialmente
+        return None
+
+    def show(self):
+        self.frame.pack(side="right", fill="both", expand=True)
+
+    def hide(self):
+        self.frame.pack_forget()
+
+    def stop(self):
+        self.stopped.set()
+        self.thread.join()
 
 
 
