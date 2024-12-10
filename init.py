@@ -11,6 +11,14 @@ import threading
 import queue
 import requests
 from threading import Thread, Event
+from PIL import Image, ImageTk
+import pygame
+import random
+from tkhtmlview import HTMLLabel
+from tkinterweb import HtmlFrame
+import sys
+import webbrowser
+import webview 
 
 import math
 
@@ -199,6 +207,8 @@ class DesktopApp:
         self.create_explorer_frame()
         self.create_calculator_frame()
         self.create_hora_frame()
+                # Inicializar el atributo chrome_frame como None
+        self.browser_frame = None
 
 
         self.create_welcome_screen()
@@ -400,16 +410,49 @@ class DesktopApp:
 
     def create_menu(self):
         self.menu_frame = tk.Frame(self.window, bg="lightgray", width=200, height=300)
-        programs = ["Calculadora", "Explorador","Administrador de Tareas","Horarios","Apagar"]
+        programs = ["Calculadora", "Explorador","Administrador de Tareas","Musica", "Editor de Texto","Horarios", "Visualizador", "Culebra","Navegador","Apagar"]
         for program in programs:
             if program == "Apagar":
                 button = tk.Button(self.menu_frame, text=program, width=15, height=2, bg="lightgray", relief="groove", command=self.apagar)
             elif program == "Administrador de Tareas":
                 button = tk.Button(self.menu_frame, text=program, width=15, height=2, bg="lightgray", relief="groove", command=self.toggle_task_manager)
+            elif program == "Navegador":
+                 button = tk.Button(self.menu_frame, text=program, width=15, height=2, bg="lightgray", relief="groove", command=self.abrir_navegador)
             else:
                 button = tk.Button(self.menu_frame, text=program, width=15, height=2, bg="lightgray", relief="groove", command=lambda p=program: self.abrir_aplicacion(p))
             button.pack(pady=2)
 
+    def abrir_navegador(self):
+        """Incrusta un navegador en una subventana dentro de la aplicación."""
+        if self.browser_frame:
+            # Si el navegador ya está abierto, traerlo al frente
+            self.browser_frame.lift()
+            return
+
+        # Crear el marco para el navegador
+        self.browser_frame = tk.Frame(self.window, bg="white")
+        self.browser_frame.pack(fill="both", expand=True)
+
+        # Botón para cerrar el navegador
+        close_button = tk.Button(
+            self.browser_frame,
+            text="Cerrar Navegador",
+            bg="red",
+            fg="white",
+            command=self.cerrar_navegador
+        )
+        close_button.pack(anchor="ne", pady=5, padx=5)
+
+        # Crear el navegador usando tkinterweb
+        html_view = HtmlFrame(self.browser_frame)
+        html_view.load_website("https://www.google.com")
+        html_view.pack(fill="both", expand=True)
+
+    def cerrar_navegador(self):
+        """Cierra el navegador embebido."""
+        if self.browser_frame:
+            self.browser_frame.destroy()
+            self.browser_frame = None
 
     def create_task_manager_frame(self):
         self.task_manager_frame = tk.Frame(self.window, bg="lightgray", width=250, height=600)
@@ -446,9 +489,17 @@ class DesktopApp:
         if nombre_aplicacion == "Calculadora":
             CalculatorApp(self)
         elif nombre_aplicacion == "Explorador":
-            ExplorerApp(self)
+            FileExplorerApp(self)
         elif nombre_aplicacion == "Horarios":
             WorldTimeApp(self)
+        elif nombre_aplicacion == "Editor de Texto":
+            TextApp(self)
+        elif nombre_aplicacion == "Musica":
+            MusicPlayerApp(self)
+        elif nombre_aplicacion == "Visualizador":
+            ImageViewerApp(self)
+        elif nombre_aplicacion == "Culebra":
+            SnakeApp(self)
         elif nombre_aplicacion == "Apagar":
             self.apagar()
 
@@ -581,208 +632,149 @@ class CalculatorApp:
                 break
 
 
-class ExplorerApp:
-    def __init__(self, desktop_app):
+class FileExplorerApp:
+    def __init__(self, desktop_app, initial_path=None):
         self.desktop_app = desktop_app
-        self.cola_explorador = desktop_app.cola_explorador
-        self.explorer_frame = desktop_app.explorer_frame
-        self.procesos_activos = desktop_app.procesos_activos
+        self.explorer_frame = tk.Frame(self.desktop_app.window, bg="lightgray", width=600, height=400)
+        self.explorer_frame.pack_propagate(False)
+        self.explorer_frame.pack(padx=10, pady=10)
 
+        self.current_path = initial_path or self.desktop_app.auth.cargar_directorio_usuario()
+        self.setup_ui()
+        self.display_directory(self.current_path)
 
-
-
-        self.mostrar_explorador()
-
-
-
-
-    def mostrar_explorador(self):
-        for widget in self.explorer_frame.winfo_children():
-            widget.destroy()
-        self.explorer_frame.pack(side="right", fill="both", expand=True, padx=10, pady=10)
-
-
-
-
+    def setup_ui(self):
+        # Encabezado y botón cerrar
         top_frame = tk.Frame(self.explorer_frame, bg="lightgray")
         top_frame.pack(fill="x")
-        close_button = tk.Button(top_frame, text="X", command=self.cerrar_explorador, bg="red", fg="white", font=("Arial", 12, "bold"))
+
+        close_button = tk.Button(
+            top_frame, text="X", command=self.close_explorer, bg="red", fg="white", font=("Arial", 12, "bold")
+        )
         close_button.pack(side="right")
 
+        back_button = tk.Button(
+            top_frame, text="←", command=self.go_back, bg="blue", fg="white", font=("Arial", 12, "bold")
+        )
+        back_button.pack(side="left", padx=5)
 
+        upload_button = tk.Button(
+            top_frame, text="Subir Archivo", command=self.upload_file, bg="green", fg="white", font=("Arial", 12, "bold")
+        )
+        upload_button.pack(side="left", padx=5)
 
+        # Canvas y scrollbar
+        self.canvas = tk.Canvas(self.explorer_frame, bg="white", highlightthickness=0)
+        self.scrollbar = ttk.Scrollbar(self.explorer_frame, orient="vertical", command=self.canvas.yview)
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
 
-        initial_path = os.getcwd()
-        path_label = tk.Label(self.explorer_frame, text=initial_path, anchor="w")
-        path_label.pack(fill="x", padx=10, pady=5)
+        self.scrollbar.pack(side="right", fill="y")
+        self.canvas.pack(side="left", fill="both", expand=True)
 
+        self.inner_frame = tk.Frame(self.canvas, bg="white")
+        self.canvas.create_window((0, 0), window=self.inner_frame, anchor="nw")
 
+        # Limitar el área visible del slider
+        self.inner_frame.bind("<Configure>", lambda e: self.update_scroll_region())
 
+    def update_scroll_region(self):
+        """Actualiza la región de desplazamiento del canvas."""
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
 
-        tree = ttk.Treeview(self.explorer_frame, columns=("fullpath",), show="tree")
-        tree.pack(fill="both", expand=True, padx=10, pady=5)
-        self.update_directory_tree(tree, initial_path)
+    def display_directory(self, path):
+        """Muestra el contenido del directorio."""
+        for widget in self.inner_frame.winfo_children():
+            widget.destroy()
 
+        self.current_path = path
 
-
-
-        back_button = tk.Button(self.explorer_frame, text="Regresar", command=lambda: self.go_back(tree, path_label))
-        back_button.pack(side="bottom", pady=10)
-        # Se crea un botón para subir un archivo, llama a la función encargada de subir archivos
-        upload_button = tk.Button(self.explorer_frame, text="Subir Archivo", command=lambda: self.subir_archivo(tree), bg="blue", fg="white", font=("Arial", 10))
-        upload_button.pack(side="bottom", pady=5)
-
-
-
-
-        tree.bind("<Double-1>", lambda event: self.on_item_click(event, tree, path_label))
-
-
-
-
-        memoria_usada = self.calcular_memoria_explorador()
-        hilo = threading.Thread(target=self.hilo_explorador, args=(self.cola_explorador,), daemon=True)
-        hilo.start()
-
-
-
-
-        self.procesos_activos["Explorador"] = {"frame": self.explorer_frame, "memoria": memoria_usada, "hilo": hilo, "cola": self.cola_explorador}
-        self.desktop_app.actualizar_procesos_activos()
-
-
-    def update_directory_tree(self,tree, path):
-        #Obtiene el usuario actual desde el self.desktop_app y lo pone en la carpeta usuarios
-        usuario_actual = self.desktop_app.auth.usuario_actual
-
-
-        print(usuario_actual)
-        path = f"./usuarios/{usuario_actual}"
-
-
-
-
-
-
-        #hace la funcion para que el arbol se pare en la carpeta usuarios/test
-        tree.delete(*tree.get_children())
-
-
-        print('direccion')
         try:
-            for item in os.listdir(path):
-                item_path = os.path.join(path, item)
-               
-                print(item)
-                print(item_path)
+            items = os.listdir(path)
+        except Exception as e:
+            messagebox.showerror("Error", f"No se puede acceder al directorio: {e}")
+            return
 
+        row, col = 0, 0
+        max_columns = 4
 
-                #De ahi saca la ruta absoluta y lo agrega en el arbol
+        for item in items:
+            item_path = os.path.join(path, item)
+            if os.path.isdir(item_path):
+                self.create_icon(item, item_path, row, col, icon_type="folder")
+            elif os.path.isfile(item_path):
+                ext = os.path.splitext(item)[-1].lower()
+                if ext in [".png", ".jpg", ".bmp"]:
+                    self.create_icon(item, item_path, row, col, icon_type="image")
+                elif ext in [".mp3", ".wav", ".ogg"]:
+                    self.create_icon(item, item_path, row, col, icon_type="music")
+                elif ext == ".txt":
+                    self.create_icon(item, item_path, row, col, icon_type="text")
 
+            col += 1
+            if col >= max_columns:
+                col = 0
+                row += 1
 
-                try:
-                    tree.insert('', 'end', text=item, values=[item_path])
-                except Exception as e:
-                    print(f"Error al insertar {item_path}: {e}")
-        except PermissionError:
-            pass
+    def create_icon(self, name, path, row, col, icon_type):
+        """Crea un icono representando un archivo o carpeta."""
+        frame = tk.Frame(self.inner_frame, bg="white", padx=5, pady=5)
+        frame.grid(row=row, column=col, padx=10, pady=10)
 
+        icon_dict = {
+            "folder": "📁",
+            "image": "🖼️",
+            "music": "🎵",
+            "text": "📄",
+        }
 
-        print('termina direcciones')
+        icon = tk.Label(frame, text=icon_dict.get(icon_type, "❓"), font=("Arial", 24), bg="white")
+        icon.pack()
 
+        label = tk.Label(frame, text=name, font=("Arial", 10), bg="white", wraplength=100, anchor="center")
+        label.pack()
 
+        frame.bind("<Button-1>", lambda e: self.open_item(path, icon_type))
+        icon.bind("<Button-1>", lambda e: self.open_item(path, icon_type))
+        label.bind("<Button-1>", lambda e: self.open_item(path, icon_type))
 
+    def open_item(self, path, item_type):
+        """Abre el archivo o carpeta."""
+        if item_type == "folder":
+            self.display_directory(path)
+        elif item_type == "image":
+            ImageViewerApp(self.desktop_app, path=path)
+        elif item_type == "music":
+            MusicPlayerApp(self.desktop_app, path=path)
+        elif item_type == "text":
+            TextApp(self.desktop_app, file_path=path)
 
+    def go_back(self):
+        """Regresa al directorio anterior."""
+        parent_dir = os.path.dirname(self.current_path)
+        if parent_dir and parent_dir != self.current_path:
+            self.display_directory(parent_dir)
 
-
-
-
-    def calcular_memoria_explorador(self):
-        memoria_base = 30
-        num_items = len(self.explorer_frame.winfo_children()) * 1
-        return memoria_base + num_items
-
-
-    # Subir archivos en el directorio del usuario
-    def subir_archivo(self,tree):
-        user_directory = self.cargar_directorio_usuario()
-        file_path = filedialog.askopenfilename(filetypes=[("Todos los archivos", "*.*")])
-
-
-
-
+    def upload_file(self):
+        """Sube un archivo al directorio actual."""
+        file_path = filedialog.askopenfilename()
         if file_path:
-            file_name = os.path.basename(file_path)
-            dest_path = os.path.join(user_directory, file_name)
-
-
-
-
             try:
-                with open(file_path, 'rb') as src_file:
-                    with open(dest_path, 'wb') as dest_file:
+                dest_path = os.path.join(self.current_path, os.path.basename(file_path))
+                with open(file_path, "rb") as src_file:
+                    with open(dest_path, "wb") as dest_file:
                         dest_file.write(src_file.read())
-                self.update_directory_tree(tree, user_directory)
-                messagebox.showinfo("Subida exitosa", f"Archivo '{file_name}' subido a tu directorio.")
+                self.display_directory(self.current_path)
+                messagebox.showinfo("Éxito", f"Archivo '{os.path.basename(file_path)}' subido correctamente.")
             except Exception as e:
                 messagebox.showerror("Error", f"No se pudo subir el archivo: {e}")
 
-
-    # Cargar el directorio del usuario
-    def cargar_directorio_usuario(self):
-        ###########################global usuario_actual
-         #Obtiene el usuario actual desde el self.desktop_app y lo pone en la carpeta usuarios
-        usuario_actual = self.desktop_app.auth.usuario_actual
-
-
-
-
-        if usuario_actual:
-            user_directory = f"./usuarios/{usuario_actual}"
-            if not os.path.exists(user_directory):
-                os.makedirs(user_directory)
-            return user_directory
-
-
-    def cerrar_explorador(self):
-        self.cola_explorador.put("cerrar")
+    def close_explorer(self):
+        """Cierra el explorador de archivos."""
         self.explorer_frame.pack_forget()
-        if "Explorador" in self.procesos_activos:
-            del self.procesos_activos["Explorador"]
+        if "Explorador de Archivos" in self.desktop_app.procesos_activos:
+            del self.desktop_app.procesos_activos["Explorador de Archivos"]
         self.desktop_app.actualizar_procesos_activos()
 
-
-
-
-
-
-
-
-    def on_item_click(self, event, tree, path_label):
-        """Navegar al subdirectorio seleccionado en el Treeview."""
-        selected_item = tree.selection()[0]
-        selected_path = tree.item(selected_item, 'values')[0]
-
-
-
-
-
-
-    def go_back(self, tree, path_label):
-        current_path = path_label.cget("text")
-        parent_path = os.path.dirname(current_path)
-        if parent_path:
-            self.update_directory_tree(tree, parent_path)
-            path_label.config(text=parent_path)
-
-
-
-
-    def hilo_explorador(self, cola):
-        while True:
-            mensaje = cola.get()
-            if mensaje == "cerrar":
-                break
 
 
 class TaskManager:
@@ -842,95 +834,738 @@ class TaskManager:
         self.frame.pack_forget()
 
 class WorldTimeApp:
-
     def __init__(self, desktop_app):
         self.desktop_app = desktop_app
-        # Crear una nueva ventana Toplevel
-        self.hora_window = tk.Toplevel(desktop_app.window)
-        self.hora_window.title("Hora Mundial")
-        self.hora_window.geometry("400x200")  # Ajusta al tamaño deseado
-        self.hora_window.protocol("WM_DELETE_WINDOW", self.on_close)
+        self.hora_frame = desktop_app.hora_frame
+        self.procesos_activos = desktop_app.procesos_activos
+        self.stopped = Event()  # Señal para detener hilos
+        self.threads = []  # Lista para rastrear todos los hilos activos
+        self.mostrar_hora_mundial()
 
-        self.mostrarHoras()
+    def mostrar_hora_mundial(self):
+        # Limpiar cualquier widget previo en el frame
+        for widget in self.hora_frame.winfo_children():
+            widget.destroy()
 
-    def mostrarHoras(self):
-        # Añade un label con un mensaje
-        message_label = tk.Label(self.hora_window, text="¡Bienvenido a la Aplicación de Hora Mundial!", font=("Arial", 16))
+        self.hora_frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        # Frame superior con botón de cerrar
+        top_frame = tk.Frame(self.hora_frame, bg="lightgray")
+        top_frame.pack(fill="x")
+        close_button = tk.Button(
+            top_frame, text="X", command=self.cerrar_hora_mundial,
+            bg="red", fg="white", font=("Arial", 12, "bold")
+        )
+        close_button.pack(side="right")
+
+        # Etiqueta de bienvenida
+        message_label = tk.Label(self.hora_frame, text="¡Bienvenido a la Aplicación de Hora Mundial!", font=("Arial", 16))
         message_label.pack(pady=20)
 
-        # Añadir otro mensaje o información dinámica
-        dynamic_label = tk.Label(self.hora_window, text="Aqui se mostrarán las horas del mundo.", font=("Arial", 14))
-        dynamic_label.pack(pady=20)
-
-    def on_close(self):
-        self.hora_window.destroy()
-
-
-
-        """     def __init__(self, desktop_app):
-        self.desktop_app = desktop_app
-        self.frame = tk.Frame(desktop_app.window, bg="lightgray", width=300, height=200)
+        # Ciudades a mostrar
         self.cities = ["America/Grand_Turk", "America/Argentina/Buenos_Aires", "Europe/Madrid", "Asia/Tokyo", "Australia/Sydney"]
         self.labels = {}
 
+        # Crear etiquetas para cada ciudad
         for city in self.cities:
-            self.labels[city] = tk.Label(self.frame, text=f"Loading time for {city.split('/')[1]}...", bg="lightgray")
+            self.labels[city] = tk.Label(self.hora_frame, text=f"Cargando hora para {city.split('/')[1]}...", bg="lightgray")
             self.labels[city].pack()
 
-        self.stopped = Event()
-        self.thread = Thread(target=self.update_times)
-        self.thread.start()
-        self.desktop_app.procesos_activos["WorldTime"] = {
-            "frame": self.frame,
-            "memoria": 50,  
-            "hilo": self.thread,
-            "cola": None  
-        } """
+        # Inicia el hilo principal para actualizar los tiempos
+        main_thread = Thread(target=self.update_times, daemon=True)
+        self.threads.append(main_thread)
+        main_thread.start()
 
-    
+        # Registrar proceso en la lista de procesos activos
+        memoria_usada = self.calcular_memoria_hora_mundial()
+        self.procesos_activos["Hora Mundial"] = {
+            "frame": self.hora_frame,
+            "memoria": memoria_usada,
+            "hilos": self.threads
+        }
+        self.desktop_app.actualizar_procesos_activos()
+
     def update_times(self):
-        retry_delay = 5
-        max_retries = 3
         while not self.stopped.is_set():
-            try:
-                for city in self.cities:
-                    response = self.fetch_data(city, max_retries, retry_delay)
-                    if response:
-                        current_time = response['datetime']
-                        self.labels[city].config(text=f"{city.split('/')[1]}: {current_time}")
-                    else:
-                        self.labels[city].config(text="Failed to load time.")
-            except Exception as e:
-                print("Unexpected error:", e)
-            time.sleep(60)  # Actualiza cada 60 segundos
+            for city in self.cities:
+                if self.stopped.is_set():
+                    return  # Salir del ciclo si se detiene
+                thread = Thread(target=self.fetch_data, args=(city,), daemon=True)
+                self.threads.append(thread)
+                thread.start()
+            time.sleep(60)  # Esperar un minuto antes de actualizar nuevamente
 
-    def fetch_data(self, city, max_retries, retry_delay):
-        for i in range(max_retries):
-            try:
-                response = requests.get(f"http://worldtimeapi.org/api/timezone/{city}")
-                if response.status_code == 200:
-                    return response.json()
-            except requests.exceptions.RequestException as e:
-                print(f"Error fetching data for {city}: {e}")
-                time.sleep(retry_delay)
-                retry_delay *= 2  # Incrementa el tiempo de espera exponencialmente
-        return None
+    def fetch_data(self, city):
+        try:
+            response = requests.get(f"http://worldtimeapi.org/api/timezone/{city}", timeout=10)
+            if self.stopped.is_set():
+                return  # Detener si la señal se activa
+            if response.status_code == 200:
+                current_time = response.json()['datetime']
+                self.labels[city].config(text=f"{city.split('/')[1]}: {current_time}")
+            else:
+                self.labels[city].config(text=f"{city.split('/')[1]}: Error")
+        except requests.exceptions.RequestException as e:
+            if not self.stopped.is_set():
+                print(f"Error obteniendo datos para {city}: {e}")
+                self.labels[city].config(text=f"{city.split('/')[1]}: Error")
 
-    def show(self):
-        self.frame.pack(side="right", fill="both", expand=True)
-
-    def hide(self):
-        self.frame.pack_forget()
-
-    def stop(self):
+    def cerrar_hora_mundial(self):
+        # Detener todos los hilos
         self.stopped.set()
-        self.thread.join()
+        for thread in self.threads:
+            if thread.is_alive():
+                thread.join(timeout=1)  # Forzar cierre después de un tiempo
+        self.threads.clear()  # Limpiar la lista de hilos
+
+        # Limpiar y destruir el frame
+        for widget in self.hora_frame.winfo_children():
+            widget.destroy()
+        self.hora_frame.pack_forget()
+
+        # Eliminar el proceso de la lista activa
+        if "Hora Mundial" in self.procesos_activos:
+            del self.procesos_activos["Hora Mundial"]
+        self.desktop_app.actualizar_procesos_activos()
+
+    def calcular_memoria_hora_mundial(self):
+        memoria_base = 30
+        num_items = len(self.hora_frame.winfo_children()) * 1
+        return memoria_base + num_items
+    
+class TextApp:
+    def __init__(self, desktop_app, file_path=None):
+        self.desktop_app = desktop_app
+        self.text_frame = tk.Frame(self.desktop_app.window, bg="lightgray", width=500, height=400)
+        self.text_frame.pack_propagate(False)
+        self.text_frame.pack(padx=10, pady=10)
+
+        self.file_path = file_path
+        self.procesos_activos = self.desktop_app.procesos_activos
+
+        self.setup_ui()
+        if file_path:
+            self.load_file(file_path)
+
+    def setup_ui(self):
+        # Encabezado y botón cerrar
+        top_frame = tk.Frame(self.text_frame, bg="lightgray")
+        top_frame.pack(fill="x")
+        close_button = tk.Button(
+            top_frame, text="X", command=self.close_text_editor, 
+            bg="red", fg="white", font=("Arial", 12, "bold")
+        )
+        close_button.pack(side="right")
+
+        # Frame para título y botón guardar
+        title_frame = tk.Frame(self.text_frame, bg="lightgray")
+        title_frame.pack(fill="x", padx=10, pady=5)
+
+        tk.Label(title_frame, text="Título del archivo:", bg="lightgray", font=("Arial", 12)).pack(side="left", padx=5)
+
+        self.file_name_entry = tk.Entry(title_frame, font=("Arial", 12), width=30)
+        self.file_name_entry.pack(side="left", padx=5, fill="x", expand=True)
+
+        save_button = tk.Button(
+            title_frame, 
+            text="Guardar", 
+            command=self.save_file, 
+            bg="blue", fg="white", font=("Arial", 12)
+        )
+        save_button.pack(side="left", padx=5)
+
+        # Área de texto
+        self.text_area = tk.Text(self.text_frame, wrap="word", font=("Arial", 12))
+        self.text_area.pack(fill="both", expand=True, padx=10, pady=10)
+
+    def load_file(self, path):
+        """Carga el contenido de un archivo de texto existente."""
+        try:
+            with open(path, 'r', encoding="utf-8") as file:
+                content = file.read()
+                self.text_area.delete(1.0, tk.END)
+                self.text_area.insert(tk.END, content)
+                file_name = os.path.basename(path)
+                self.file_name_entry.insert(0, file_name)
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo cargar el archivo: {e}")
+
+    def save_file(self):
+        """Guarda el archivo de texto en la carpeta 'Documentos' del usuario."""
+        file_name = self.file_name_entry.get().strip()
+        if not file_name:
+            
+            messagebox.showerror("Error", "Por favor, ingresa un nombre para el archivo.")
+            return
+
+        file_name = file_name+".txt"
+        # Definir ruta de guardado
+        user_directory = self.desktop_app.auth.cargar_directorio_usuario()
+        documents_directory = os.path.join(user_directory, "Documentos")
+        if not os.path.exists(documents_directory):
+            os.makedirs(documents_directory)
+
+        file_path = os.path.join(documents_directory, file_name)
+
+        try:
+            with open(file_path, 'w', encoding="utf-8") as file:
+                content = self.text_area.get(1.0, tk.END).strip()
+                file.write(content)
+            messagebox.showinfo("Guardado exitoso", f"Archivo guardado en {file_path}")
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo guardar el archivo: {e}")
+
+    def close_text_editor(self):
+        """Cierra el editor de texto."""
+        self.text_frame.pack_forget()
+        if "Editor de Texto" in self.procesos_activos:
+            del self.procesos_activos["Editor de Texto"]
+        self.desktop_app.actualizar_procesos_activos()
 
 
 
+
+
+
+
+
+
+
+
+class MusicPlayerApp:
+    def __init__(self, desktop_app, path=None):
+        self.desktop_app = desktop_app
+        self.music_frame = tk.Frame(self.desktop_app.window, bg="lightgray", width=300, height=200)
+        self.music_frame.pack_propagate(False)
+        self.music_frame.pack(padx=10, pady=10)
+
+        self.current_file = None
+        self.is_playing = False
+        self.is_paused = False
+        self.audio_length = 0
+        self.slider_locked = False  # Controla si el slider está siendo ajustado manualmente
+        self.playlist = []  # Lista de canciones
+        self.current_index = 0  # Índice de la canción actual
+
+        pygame.mixer.init()
+        pygame.mixer.music.set_volume(0.5)  # Volumen inicial al 50%
+
+        self.setup_ui()
+
+        # Cargar canciones desde el path proporcionado
+        if path:
+            self.load_from_path(path)
+        else:
+            self.load_default_directory()
+
+    def setup_ui(self):
+        # Encabezado y botón cerrar
+        top_frame = tk.Frame(self.music_frame, bg="lightgray")
+        top_frame.pack(fill="x")
+        close_button = tk.Button(top_frame, text="X", command=self.close_music_player, bg="red", fg="white")
+        close_button.pack(side="right")
+
+        # Visor de información
+        self.song_label = tk.Label(self.music_frame, text="Ningún archivo cargado", bg="lightgray", anchor="center", wraplength=250)
+        self.song_label.pack(pady=5)
+
+        # Botones de control
+        control_frame = tk.Frame(self.music_frame, bg="lightgray")
+        control_frame.pack(pady=5)
+        self.back_button = tk.Button(control_frame, text="⏪", command=self.play_prev, width=4)
+        self.back_button.grid(row=0, column=0, padx=5)
+        self.play_button = tk.Button(control_frame, text="▶️", command=self.play_pause_music, width=4)
+        self.play_button.grid(row=0, column=1, padx=5)
+        self.stop_button = tk.Button(control_frame, text="⏹", command=self.stop_music, width=4)
+        self.stop_button.grid(row=0, column=2, padx=5)
+        self.forward_button = tk.Button(control_frame, text="⏩", command=self.play_next, width=4)
+        self.forward_button.grid(row=0, column=3, padx=5)
+
+        # Sliders de progreso y volumen
+        sliders_frame = tk.Frame(self.music_frame, bg="lightgray")
+        sliders_frame.pack(fill="x", padx=10, pady=5)
+
+        # Slider de progreso
+        self.progress = ttk.Scale(sliders_frame, from_=0, to=100, orient="horizontal", command=self.on_slider_move)
+        self.progress.bind("<ButtonPress-1>", self.on_slider_press)
+        self.progress.bind("<ButtonRelease-1>", self.on_slider_release)
+        self.progress.grid(row=0, column=0, sticky="we", padx=5)
+        sliders_frame.columnconfigure(0, weight=3)
+
+        # Slider de volumen
+        self.volume = ttk.Scale(sliders_frame, from_=0, to=1, orient="horizontal", command=self.set_volume, length=80)
+        self.volume.set(0.5)  # Volumen inicial
+        self.volume.grid(row=0, column=1, sticky="e", padx=5)
+
+        # Tiempo de reproducción
+        self.time_label = tk.Label(self.music_frame, text="00:00 / 00:00", bg="lightgray")
+        self.time_label.pack(pady=5)
+
+    def load_default_directory(self):
+        """Carga canciones desde el directorio por defecto del usuario."""
+        user_directory = self.desktop_app.auth.cargar_directorio_usuario()
+        if not user_directory:
+            messagebox.showerror("Error", "No se encontró el directorio del usuario.")
+            return
+
+        music_directory = os.path.join(user_directory, "Música")
+        if not os.path.exists(music_directory):
+            messagebox.showerror("Error", "No se encontró la carpeta 'Música'.")
+            return
+
+        self.load_from_path(music_directory)
+
+    def load_from_path(self, path):
+        """
+        Carga canciones desde un directorio o desde un archivo.
+        Si `path` es un archivo, carga la canción y las demás canciones del directorio.
+        Si `path` es un directorio, carga todas las canciones de ese directorio.
+        """
+        if os.path.isfile(path):
+            directory = os.path.dirname(path)
+            self.playlist = [
+                os.path.join(directory, file)
+                for file in os.listdir(directory)
+                if file.lower().endswith((".mp3", ".wav", ".ogg"))
+            ]
+            self.current_index = self.playlist.index(path)
+        elif os.path.isdir(path):
+            self.playlist = [
+                os.path.join(path, file)
+                for file in os.listdir(path)
+                if file.lower().endswith((".mp3", ".wav", ".ogg"))
+            ]
+            self.current_index = 0
+        else:
+            messagebox.showerror("Error", f"No se puede cargar: {path}")
+            return
+
+        if not self.playlist:
+            messagebox.showinfo("Información", "No se encontraron archivos de audio en la carpeta.")
+            return
+
+        self.load_file(self.playlist[self.current_index])
+
+    def load_file(self, file_path):
+        """Carga un archivo de música."""
+        self.current_file = file_path
+        pygame.mixer.music.load(file_path)
+        self.audio_length = int(pygame.mixer.Sound(file_path).get_length())
+        self.song_label.config(text=f"Cargado: {os.path.basename(file_path)}")
+        self.progress.config(to=self.audio_length)
+        self.time_label.config(
+            text=f"00:00 / {time.strftime('%M:%S', time.gmtime(self.audio_length))}"
+        )
+        self.stop_music()  # Detener la música antes de reproducir otra
+
+    def play_pause_music(self):
+        if not self.current_file:
+            return
+        if not self.is_playing:
+            pygame.mixer.music.play()
+            self.is_playing = True
+            self.is_paused = False
+            self.play_button.config(text="⏸")
+            threading.Thread(target=self.update_progress, daemon=True).start()
+        elif self.is_paused:
+            pygame.mixer.music.unpause()
+            self.is_paused = False
+            self.play_button.config(text="⏸")
+        else:
+            pygame.mixer.music.pause()
+            self.is_paused = True
+            self.play_button.config(text="▶️")
+
+    def play_next(self):
+        """Reproduce la siguiente canción en la lista."""
+        if not self.playlist:
+            return
+        self.current_index = (self.current_index + 1) % len(self.playlist)
+        self.load_file(self.playlist[self.current_index])
+        self.play_pause_music()
+
+    def play_prev(self):
+        """Reproduce la canción anterior en la lista."""
+        if not self.playlist:
+            return
+        self.current_index = (self.current_index - 1) % len(self.playlist)
+        self.load_file(self.playlist[self.current_index])
+        self.play_pause_music()
+
+    def stop_music(self):
+        pygame.mixer.music.stop()
+        self.is_playing = False
+        self.play_button.config(text="▶️")
+        self.progress.set(0)
+        self.time_label.config(text="00:00 / 00:00")
+
+    def set_volume(self, value):
+        volume = float(value)
+        pygame.mixer.music.set_volume(volume)
+
+    def on_slider_move(self, value):
+        """Actualiza el tiempo mientras el usuario mueve el slider."""
+        if self.slider_locked:
+            current_time = int(float(value))
+            self.time_label.config(
+                text=f"{time.strftime('%M:%S', time.gmtime(current_time))} / {time.strftime('%M:%S', time.gmtime(self.audio_length))}"
+            )
+
+    def on_slider_press(self, event):
+        """Bloquea la actualización automática mientras el usuario ajusta el slider."""
+        self.slider_locked = True
+
+    def on_slider_release(self, event):
+        """Ajusta la posición de la música y desbloquea la actualización automática."""
+        self.slider_locked = False
+        if self.current_file:
+            new_position = int(self.progress.get())
+            pygame.mixer.music.set_pos(new_position)
+
+    def update_progress(self):
+        while self.is_playing:
+            if not self.is_paused and not self.slider_locked:
+                current_time = pygame.mixer.music.get_pos() // 1000
+                if current_time >= 0:
+                    self.progress.set(current_time)
+                    self.time_label.config(
+                        text=f"{time.strftime('%M:%S', time.gmtime(current_time))} / {time.strftime('%M:%S', time.gmtime(self.audio_length))}"
+                    )
+            time.sleep(1)
+
+    def close_music_player(self):
+        self.stop_music()
+        self.music_frame.pack_forget()
+
+
+
+
+
+class ImageViewerApp:
+    def __init__(self, desktop_app, path=None):
+        self.desktop_app = desktop_app
+        self.image_frame = tk.Frame(self.desktop_app.window, bg="lightgray", width=600, height=400)
+        self.image_frame.pack_propagate(False)
+        self.image_frame.pack(padx=10, pady=10)
+
+        self.images = []  # Lista de imágenes cargadas
+        self.image_paths = []  # Rutas de las imágenes cargadas
+        self.current_index = 0  # Índice de la imagen actual
+        self.zoom_level = 1.0  # Nivel de zoom
+
+        self.setup_ui()
+
+        if path:
+            self.load_from_path(path)
+        else:
+            self.load_images_from_user_directory()
+
+    def setup_ui(self):
+        # Encabezado y botón cerrar
+        top_frame = tk.Frame(self.image_frame, bg="lightgray")
+        top_frame.pack(fill="x")
+        close_button = tk.Button(top_frame, text="X", command=self.close_image_viewer, bg="red", fg="white")
+        close_button.pack(side="right")
+
+        # Canvas para mostrar la imagen
+        self.canvas = tk.Canvas(self.image_frame, bg="white", width=600, height=300)
+        self.canvas.pack(fill="both", expand=True, padx=10, pady=10)
+
+        # Controles de navegación
+        controls_frame = tk.Frame(self.image_frame, bg="lightgray")
+        controls_frame.pack(fill="x", padx=10, pady=5)
+
+        self.prev_button = tk.Button(controls_frame, text="⟵", command=self.show_prev_image)
+        self.prev_button.grid(row=0, column=0, padx=5)
+
+        self.zoom_slider = ttk.Scale(
+            controls_frame, from_=0.5, to=3.0, orient="horizontal", value=self.zoom_level, command=self.update_zoom
+        )
+        self.zoom_slider.grid(row=0, column=1, sticky="we", padx=10)
+        controls_frame.columnconfigure(1, weight=1)
+
+        self.next_button = tk.Button(controls_frame, text="⟶", command=self.show_next_image)
+        self.next_button.grid(row=0, column=2, padx=5)
+
+
+
+    def load_from_path(self, path):
+        """Carga una imagen específica o todas las imágenes de un directorio."""
+        if os.path.isfile(path):
+            # Si es un archivo, carga solo este archivo y su directorio
+            directory = os.path.dirname(path)
+            self.image_paths = [
+                os.path.join(directory, file)
+                for file in os.listdir(directory)
+                if file.lower().endswith((".jpg", ".png", ".jpeg", ".bmp"))
+            ]
+            self.current_index = self.image_paths.index(path)
+        elif os.path.isdir(path):
+            # Si es un directorio, carga todas las imágenes del directorio
+            self.image_paths = [
+                os.path.join(path, file)
+                for file in os.listdir(path)
+                if file.lower().endswith((".jpg", ".png", ".jpeg", ".bmp"))
+            ]
+            self.current_index = 0
+
+        if not self.image_paths:
+            messagebox.showinfo("Información", "No se encontraron imágenes en el directorio.")
+            return
+
+        self.images = [Image.open(image_path) for image_path in self.image_paths]
+        self.zoom_level = 1.0
+        self.zoom_slider.set(self.zoom_level)  # Asegurarse de sincronizar el slider con el zoom inicial
+        self.display_image()
+
+    def load_images_from_user_directory(self):
+        """Carga imágenes de la carpeta 'Imágenes' del usuario."""
+        user_directory = self.desktop_app.auth.cargar_directorio_usuario()
+        if not user_directory:
+            messagebox.showerror("Error", "No se encontró el directorio del usuario.")
+            return
+
+        images_directory = os.path.join(user_directory, "Imágenes")
+        self.load_from_path(images_directory)
+
+    def display_image(self):
+        """Muestra la imagen actual con el zoom aplicado."""
+        if not self.images:
+            return
+
+        image = self.images[self.current_index]
+        # Asegurarse de aplicar el zoom inicial correctamente
+        zoomed_image = image.resize(
+            (int(image.width * self.zoom_level), int(image.height * self.zoom_level)), Image.Resampling.LANCZOS
+        )
+        self.tk_image = ImageTk.PhotoImage(zoomed_image)
+
+        self.canvas.delete("all")
+        self.canvas.create_image(
+            self.canvas.winfo_width() // 2,
+            self.canvas.winfo_height() // 2,
+            image=self.tk_image,
+            anchor="center",
+        )
+
+    def show_prev_image(self):
+        """Muestra la imagen anterior."""
+        if self.images:
+            self.current_index = (self.current_index - 1) % len(self.images)
+            self.zoom_level = 1.0
+            self.zoom_slider.set(self.zoom_level)  # Sincronizar el slider
+            self.display_image()
+
+    def show_next_image(self):
+        """Muestra la siguiente imagen."""
+        if self.images:
+            self.current_index = (self.current_index + 1) % len(self.images)
+            self.zoom_level = 1.0
+            self.zoom_slider.set(self.zoom_level)  # Sincronizar el slider
+            self.display_image()
+
+    def update_zoom(self, value):
+        """Actualiza el zoom de la imagen."""
+        self.zoom_level = float(value)
+        self.display_image()
+
+    def close_image_viewer(self):
+        """Cierra el visor de imágenes."""
+        self.image_frame.pack_forget()
+        if "Visualizador" in self.desktop_app.procesos_activos:
+            del self.desktop_app.procesos_activos["Visualizador"]
+        self.desktop_app.actualizar_procesos_activos()
+
+
+
+
+
+
+
+
+
+class SnakeApp:
+    def __init__(self, desktop_app):
+        self.desktop_app = desktop_app
+        self.snake_frame = tk.Frame(self.desktop_app.window, bg="lightgray", width=800, height=600)
+        self.snake_frame.pack_propagate(False)
+        self.snake_frame.pack(padx=10, pady=10)
+
+        self.running = False
+        self.paused = False
+        self.score = 0
+        self.snake = [(5, 5)]  # Lista de posiciones del cuerpo de la serpiente
+        self.food = (0, 0)  # Posición de la comida
+        self.direction = "Right"  # Dirección inicial
+        self.grid_size = 20  # Tamaño del grid
+        self.cell_size = 20  # Tamaño de cada celda
+
+        self.setup_ui()
+        self.reset_game()
+
+    def setup_ui(self):
+        # Encabezado y botones
+        top_frame = tk.Frame(self.snake_frame, bg="lightgray")
+        top_frame.pack(fill="x")
+
+        # Botones en el encabezado
+        new_game_button = tk.Button(top_frame, text="Nueva Partida", command=self.reset_game, bg="blue", fg="white", width=12, height=1)
+        new_game_button.pack(side="left", padx=5)
+
+        pause_button = tk.Button(top_frame, text="Pausa", command=self.toggle_pause, bg="orange", fg="white", width=8, height=1)
+        pause_button.pack(side="left", padx=5)
+
+        close_button = tk.Button(top_frame, text="X", command=self.close_snake_game, bg="red", fg="white", width=3, height=1)
+        close_button.pack(side="right")
+
+        # Mensaje de estado
+        self.message_label = tk.Label(self.snake_frame, text="", bg="lightgray", font=("Arial", 12), fg="red")
+        self.message_label.pack(pady=5)
+
+        # Barra de puntuación
+        self.score_label = tk.Label(self.snake_frame, text=f"Puntuación: {self.score}", bg="lightgray", font=("Arial", 12))
+        self.score_label.pack(pady=5)
+
+        # Canvas para el juego
+        self.canvas = tk.Canvas(
+            self.snake_frame,
+            bg="black",
+            width=self.grid_size * self.cell_size,
+            height=self.grid_size * self.cell_size,
+        )
+        self.canvas.pack(padx=10, pady=10)
+
+        # Enlazar las teclas de dirección
+        self.desktop_app.window.bind("<Up>", lambda event: self.change_direction("Up"))
+        self.desktop_app.window.bind("<Down>", lambda event: self.change_direction("Down"))
+        self.desktop_app.window.bind("<Left>", lambda event: self.change_direction("Left"))
+        self.desktop_app.window.bind("<Right>", lambda event: self.change_direction("Right"))
+
+    def reset_game(self):
+        """Reinicia el juego pero no lo inicia automáticamente."""
+        self.running = False
+        self.paused = False
+        self.score = 0
+        self.snake = [(5, 5)]
+        self.direction = "Right"
+        self.message_label.config(text="Presiona 'Pausa' para empezar el juego")
+        self.place_food()
+        self.update_score()
+        self.draw_game()
+
+    def start_game(self):
+        """Inicia el juego."""
+        if not self.running:
+            self.running = True
+            self.message_label.config(text="")
+            self.run_game()
+
+    def toggle_pause(self):
+        """Pausa o reanuda el juego."""
+        if self.running:
+            self.paused = not self.paused
+            if self.paused:
+                self.message_label.config(text="Juego Pausado")
+            else:
+                self.message_label.config(text="")
+        else:
+            self.start_game()
+
+    def update_score(self):
+        """Actualiza la puntuación en la interfaz."""
+        self.score_label.config(text=f"Puntuación: {self.score}")
+
+    def place_food(self):
+        """Coloca la comida en una posición aleatoria que no choque con la serpiente."""
+        while True:
+            self.food = (random.randint(2, self.grid_size - 2), random.randint(2, self.grid_size - 2))
+            print(self.food)
+            if self.food not in self.snake:
+                break
+
+    def change_direction(self, new_direction):
+        """Cambia la dirección de la serpiente, evitando giros de 180°."""
+        if (new_direction == "Up" and self.direction != "Down") or \
+           (new_direction == "Down" and self.direction != "Up") or \
+           (new_direction == "Left" and self.direction != "Right") or \
+           (new_direction == "Right" and self.direction != "Left"):
+            self.direction = new_direction
+
+    def run_game(self):
+        """Lógica principal del juego."""
+        if self.running and not self.paused:
+            self.move_snake()
+            self.check_collisions()
+            self.draw_game()
+        if self.running:
+            self.snake_frame.after(100, self.run_game)  # Velocidad del juego
+
+    def move_snake(self):
+        """Mueve la serpiente en la dirección actual."""
+        head_x, head_y = self.snake[-1]
+        if self.direction == "Up":
+            head_y -= 1
+        elif self.direction == "Down":
+            head_y += 1
+        elif self.direction == "Left":
+            head_x -= 1
+        elif self.direction == "Right":
+            head_x += 1
+        new_head = (head_x, head_y)
+        self.snake.append(new_head)
+
+        # Si la serpiente no come, elimina el último segmento
+        if new_head == self.food:
+            self.score += 1
+            self.place_food()
+            self.update_score()
+        else:
+            self.snake.pop(0)
+
+    def check_collisions(self):
+        """Verifica si la serpiente choca con las paredes o consigo misma."""
+        head_x, head_y = self.snake[-1]
+        if head_x < 0 or head_x >= self.grid_size or head_y < 0 or head_y >= self.grid_size:
+            self.game_over()
+        if len(self.snake) != len(set(self.snake)):  # Verifica si hay duplicados (auto-colisión)
+            self.game_over()
+
+    def draw_game(self):
+        """Dibuja la serpiente y la comida en el canvas."""
+        self.canvas.delete("all")
+
+        # Dibuja la serpiente
+        for segment in self.snake:
+            x1 = segment[0] * self.cell_size
+            y1 = segment[1] * self.cell_size
+            x2 = x1 + self.cell_size
+            y2 = y1 + self.cell_size
+            self.canvas.create_rectangle(x1, y1, x2, y2, fill="green", outline="")
+
+        # Dibuja la comida
+        food_x1 = self.food[0] * self.cell_size
+        food_y1 = self.food[1] * self.cell_size
+        food_x2 = food_x1 + self.cell_size
+        food_y2 = food_y1 + self.cell_size
+        self.canvas.create_oval(food_x1, food_y1, food_x2, food_y2, fill="red", outline="")
+
+    def game_over(self):
+        """Finaliza el juego."""
+        self.running = False
+        self.paused = False
+        self.message_label.config(text=f"Game Over - Puntuación final: {self.score}")
+
+    def close_snake_game(self):
+        """Cierra la ventana del juego."""
+        self.running = False
+        self.snake_frame.pack_forget()
+        if "Snake" in self.desktop_app.procesos_activos:
+            del self.desktop_app.procesos_activos["Snake"]
+        self.desktop_app.actualizar_procesos_activos()
 
 
 
 
 if __name__ == "__main__":
+
     DesktopApp()
