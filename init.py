@@ -18,7 +18,9 @@ from tkhtmlview import HTMLLabel
 from tkinterweb import HtmlFrame
 import sys
 import webbrowser
-import webview 
+#import webview 
+import cv2
+from ffpyplayer.player import MediaPlayer
 
 import math
 
@@ -33,7 +35,6 @@ class Auth:
         if os.path.exists("usuarios.json"):
             with open("usuarios.json", "r") as file:
                 self.usuarios = json.load(file)
-
 
     def guardar_usuarios(self):
         #Si usuarios.json no existe, se crea
@@ -52,15 +53,8 @@ class Auth:
 
 
 
-
-
-
-
-
-
     def cifrar_contraseña(self, password):
         return hashlib.sha256(password.encode()).hexdigest()
-
 
     def iniciar_sesion(self, username, password):
         password_hash = self.cifrar_contraseña(password)
@@ -70,39 +64,45 @@ class Auth:
         return False
 
 
-    def registrar_usuario(self, username, password):
+    def registrar_usuario(self, username, password, admin=False):
         if username in self.usuarios:
             return False
-        self.usuarios[username] = {"password": self.cifrar_contraseña(password)}
+        self.usuarios[username] = {
+            "password": self.cifrar_contraseña(password),
+            "admin": admin  # Añadimos el rol de administrador
+        }
         self.guardar_usuarios()
 
-
-        #Crea una carpeta en el directorio usuarios con el nombre del usuario
+        # Crear la carpeta del usuario y subcarpetas
         user_directory = f"./usuarios/{username}"
         if not os.path.exists(user_directory):
             os.makedirs(user_directory)
 
-
-        #ademas crea las carpetas de documentos, descargas, musica, videos e imagenes
         carpetas = ["Documentos", "Descargas", "Música", "Videos", "Imágenes"]
         for carpeta in carpetas:
             carpeta_path = os.path.join(user_directory, carpeta)
             if not os.path.exists(carpeta_path):
                 os.makedirs(carpeta_path)
 
-
-
-
         return True
 
-
     def cargar_directorio_usuario(self):
+        """Devuelve el directorio raíz del usuario actual."""
         if self.usuario_actual:
             user_directory = f"./usuarios/{self.usuario_actual}"
             if not os.path.exists(user_directory):
                 os.makedirs(user_directory)
             return user_directory
         return None
+
+    def es_admin(self):
+        """Devuelve True si el usuario actual es administrador, de lo contrario False."""
+        try:
+            if self.usuario_actual:
+                return self.usuarios[self.usuario_actual].get("admin", False)
+        except Exception:
+            return False
+        return False  # Por defecto, se devuelve False si ocurre un error
 
 
 class FileExplorer:
@@ -240,31 +240,6 @@ class DesktopApp:
 
 
 
-    def create_welcome_screen(self):
-        self.welcome_frame = tk.Frame(self.window, bg="white")
-        self.welcome_frame.pack(fill="both", expand=True)
-        welcome_label = tk.Label(self.welcome_frame, text="Bienvenido", font=("Arial", 24), bg="white")
-        welcome_label.pack(pady=50)
-
-        # se carga el logo por medio del os de pyhton
-        logo_path = os.path.join(os.getcwd(), "images", "s1.png")
-        if os.path.exists(logo_path):
-            logo = tk.PhotoImage(file=logo_path)
-            logo_label = tk.Label(self.welcome_frame, image=logo)
-            logo_label.image = logo  # Keep a reference to avoid garbage collection
-            logo_label.pack(pady=50)
-        else:
-            logo_label = tk.Label(self.welcome_frame, text="Logo no encontrado", font=("Arial", 14), bg="white", fg="red")
-            logo_label.pack(pady=50)
-
-
-        login_button = tk.Button(self.welcome_frame, text="Iniciar Sesión", font=("Arial", 14), command=self.mostrar_inicio_sesion)
-        login_button.pack(pady=10)
-
-
-        register_button = tk.Button(self.welcome_frame, text="Registrar", font=("Arial", 14), command=self.mostrar_registro)
-        register_button.pack(pady=10)
-
 
     def actualizar_procesos_activos(self):
         # Método para actualizar la lista de procesos activos en el Administrador de Tareas
@@ -358,44 +333,108 @@ class DesktopApp:
 
 
 
-
-
-
-
-
-
-    def mostrar_registro(self):
-        # Limpiar el marco de autenticación antes de mostrar el formulario de registro
+    def create_welcome_screen(self):
+        # Limpiar todos los frames existentes antes de mostrar la pantalla de bienvenida
         self._limpiar_frame(self.auth_frame)
 
+        # Crear la ventana de bienvenida
+        self.welcome_frame = tk.Frame(self.window, bg="white")
+        self.welcome_frame.pack(fill="both", expand=True)
 
-        tk.Label(self.auth_frame, text="Nuevo Usuario").pack(pady=5)
+        # Agregar el texto "Bienvenido"
+        welcome_label = tk.Label(self.welcome_frame, text="Bienvenido", font=("Arial", 24), bg="white")
+        welcome_label.pack(pady=20)
+
+        # Mostrar la imagen del logo correctamente
+        logo_path = os.path.join(os.getcwd(), "images", "s1.png")  # Asegúrate de que la ruta sea correcta
+        if os.path.exists(logo_path):
+            logo = tk.PhotoImage(file=logo_path)
+            logo_label = tk.Label(self.welcome_frame, image=logo, bg="white")
+            logo_label.image = logo  # Mantener una referencia para evitar que se recolecte
+            logo_label.pack(pady=10)
+        else:
+            logo_label = tk.Label(self.welcome_frame, text="Logo no encontrado", bg="white", font=("Arial", 14), fg="red")
+            logo_label.pack(pady=10)
+
+        # Botones para Iniciar Sesión y Registrarse
+        login_button = tk.Button(
+            self.welcome_frame, text="Iniciar Sesión", command=self.mostrar_inicio_sesion,
+            font=("Arial", 14), bg="blue", fg="white"
+        )
+        login_button.pack(pady=10)
+
+        register_button = tk.Button(
+            self.welcome_frame, text="Registrar", command=self.mostrar_registro,
+            font=("Arial", 14), bg="green", fg="white"
+        )
+        register_button.pack(pady=10)
+
+    def mostrar_registro(self):
+        # Limpiar el marco actual antes de mostrar el formulario de registro
+        self._limpiar_frame(self.auth_frame)
+
+        # Título de la ventana
+        tk.Label(self.auth_frame, text="Registrar Usuario", font=("Arial", 18), bg="white").pack(pady=10)
+
+        # Campo para ingresar nombre de usuario
+        tk.Label(self.auth_frame, text="Nuevo Usuario:", bg="white").pack(pady=5)
         registro_username = tk.Entry(self.auth_frame)
         registro_username.pack(pady=5)
 
-
-        tk.Label(self.auth_frame, text="Contraseña").pack(pady=5)
+        # Campo para ingresar contraseña
+        tk.Label(self.auth_frame, text="Contraseña:", bg="white").pack(pady=5)
         registro_password = tk.Entry(self.auth_frame, show="*")
         registro_password.pack(pady=5)
 
+        # Checkbox para definir si el usuario es administrador
+        is_admin = tk.BooleanVar()
+        admin_checkbox = tk.Checkbutton(
+            self.auth_frame,
+            text="Administrador",
+            variable=is_admin,
+            bg="white"
+        )
+        admin_checkbox.pack(pady=5)
 
+        # Mensaje de error o éxito
+        message_label = tk.Label(self.auth_frame, text="", bg="white", fg="red", font=("Arial", 12))
+        message_label.pack(pady=5)
+
+        # Función para intentar registrar un usuario
         def intentar_registrar_usuario():
-            if not self.message_label.winfo_exists():
-                return  # Evitar errores si la ventana ha sido destruida
+            username = registro_username.get().strip()
+            password = registro_password.get().strip()
 
+            if not username or not password:
+                message_label.config(text="Todos los campos son obligatorios.")
+                return
 
-            username = registro_username.get()
-            password = registro_password.get()
-            if self.auth.registrar_usuario(username, password):
-                self.message_label.config(text="Usuario registrado con éxito.", fg="green")
-                self.mostrar_inicio_sesion()  # Redirigir al inicio de sesión después de registrar
-                self.window.after(4000, self.limpiar_mensaje)  # Limpiar el mensaje después de 4 segundos
+            if self.auth.registrar_usuario(username, password, is_admin.get()):
+                message_label.config(text="Usuario registrado con éxito.", fg="green")
+                self.window.after(2000, self.mostrar_inicio_sesion)  # Ir al login tras éxito
             else:
-                self.message_label.config(text="El usuario ya existe.", fg="red")
-                self.window.after(4000, self.limpiar_mensaje)  # Limpiar el mensaje después de 4 segundos
+                message_label.config(text="El usuario ya existe.", fg="red")
 
+        # Botón para registrar
+        tk.Button(
+            self.auth_frame,
+            text="Registrar",
+            command=intentar_registrar_usuario,
+            bg="green",
+            fg="white",
+            font=("Arial", 12)
+        ).pack(pady=10)
 
-        tk.Button(self.auth_frame, text="Registrar", command=intentar_registrar_usuario).pack(pady=10)
+        # Botón para ir al inicio de sesión
+        tk.Button(
+            self.auth_frame,
+            text="Iniciar Sesión",
+            command=self.mostrar_inicio_sesion,
+            bg="blue",
+            fg="white",
+            font=("Arial", 12)
+        ).pack(pady=5)
+
 
 
 
@@ -410,14 +449,12 @@ class DesktopApp:
 
     def create_menu(self):
         self.menu_frame = tk.Frame(self.window, bg="lightgray", width=200, height=300)
-        programs = ["Calculadora", "Explorador","Administrador de Tareas","Musica", "Editor de Texto","Horarios", "Visualizador", "Culebra","Navegador","Apagar"]
+        programs = ["Calculadora", "Explorador","Administrador de Tareas","Musica", "Editor de Texto","Horarios", "Visualizador", "Culebra","Navegador","Apagar","Video"]
         for program in programs:
             if program == "Apagar":
                 button = tk.Button(self.menu_frame, text=program, width=15, height=2, bg="lightgray", relief="groove", command=self.apagar)
             elif program == "Administrador de Tareas":
                 button = tk.Button(self.menu_frame, text=program, width=15, height=2, bg="lightgray", relief="groove", command=self.toggle_task_manager)
-            elif program == "Navegador":
-                 button = tk.Button(self.menu_frame, text=program, width=15, height=2, bg="lightgray", relief="groove", command=self.abrir_navegador)
             else:
                 button = tk.Button(self.menu_frame, text=program, width=15, height=2, bg="lightgray", relief="groove", command=lambda p=program: self.abrir_aplicacion(p))
             button.pack(pady=2)
@@ -500,6 +537,10 @@ class DesktopApp:
             ImageViewerApp(self)
         elif nombre_aplicacion == "Culebra":
             SnakeApp(self)
+        elif nombre_aplicacion == "Navegador":
+            BrowserApp(self) 
+        elif nombre_aplicacion == "Video":
+            VideoPlayerApp(self)
         elif nombre_aplicacion == "Apagar":
             self.apagar()
 
@@ -522,30 +563,41 @@ class DesktopApp:
         self.window.destroy()
 
 
-
 class CalculatorApp:
+    instance_counter = 0  # Contador estático para generar identificadores únicos
+
     def __init__(self, desktop_app):
         self.desktop_app = desktop_app
-        self.cola_calculadora = desktop_app.cola_calculadora
-        self.calculator_frame = desktop_app.calculator_frame  # Usar el marco existente
-        self.procesos_activos = desktop_app.procesos_activos
+        self.cola_calculadora = queue.Queue()
+        self.calculator_frame = tk.Frame(self.desktop_app.window, bg="lightgray", width=300, height=400)
+        self.calculator_frame.pack_propagate(False)
+        self.calculator_frame.pack(padx=10, pady=10)
+
+        # Asignar un identificador único a esta instancia
+        CalculatorApp.instance_counter += 1
+        self.instance_id = f"Calculadora {CalculatorApp.instance_counter}"
+        
+
+        self.procesos_activos = self.desktop_app.procesos_activos
         self.mostrar_calculadora()
 
     def mostrar_calculadora(self):
-        # Limpiar la calculadora antes de mostrarla
+        # Limpiar el marco antes de mostrar la calculadora
         for widget in self.calculator_frame.winfo_children():
             widget.destroy()
-
-        self.calculator_frame.pack(side="right", fill="both", padx=10, pady=10)
 
         # Crear el frame superior con el botón de cerrar
         top_frame = tk.Frame(self.calculator_frame, bg="lightgray")
         top_frame.grid(row=0, column=0, columnspan=8, sticky="we")
-        close_button = tk.Button(top_frame, text="X", command=self.cerrar_calculadora, bg="red", fg="white", font=("Arial", 12, "bold"))
+        close_button = tk.Button(
+            top_frame, text="X", command=self.cerrar_calculadora, bg="red", fg="white", font=("Arial", 12, "bold")
+        )
         close_button.pack(side="right")
 
         # Entrada de texto de la calculadora
-        self.entry = tk.Entry(self.calculator_frame, width=35, font=("Arial", 18), borderwidth=2, relief="solid", justify='right')
+        self.entry = tk.Entry(
+            self.calculator_frame, width=35, font=("Arial", 18), borderwidth=2, relief="solid", justify="right"
+        )
         self.entry.grid(row=1, column=0, columnspan=8, pady=10)
 
         # Botones de la calculadora
@@ -565,11 +617,16 @@ class CalculatorApp:
                 col_val += 1
             row_val += 1
 
-        # Calcular y actualizar la memoria de la calculadora
+        # Calcular y registrar memoria utilizada
         memoria_usada = self.calcular_memoria_calculadora()
         hilo = threading.Thread(target=self.hilo_calculadora, args=(self.cola_calculadora,), daemon=True)
         hilo.start()
-        self.procesos_activos["Calculadora"] = {"frame": self.calculator_frame, "memoria": memoria_usada, "hilo": hilo, "cola": self.cola_calculadora}
+        self.procesos_activos[self.instance_id] = {
+            "frame": self.calculator_frame,
+            "memoria": memoria_usada,
+            "hilo": hilo,
+            "cola": self.cola_calculadora,
+        }
         self.desktop_app.actualizar_procesos_activos()
 
     def process_button(self, value):
@@ -578,7 +635,7 @@ class CalculatorApp:
         elif value == 'AC':
             self.entry.delete(0, tk.END)
         elif value == 'C':
-            self.entry.delete(len(self.entry.get())-1, tk.END)
+            self.entry.delete(len(self.entry.get()) - 1, tk.END)
         elif value == 'sqrt':
             self.entry.insert(tk.END, '**0.5')
         elif value == '^2':
@@ -616,23 +673,37 @@ class CalculatorApp:
     def cerrar_calculadora(self):
         self.cola_calculadora.put("cerrar")
         self.calculator_frame.pack_forget()
-        if "Calculadora" in self.procesos_activos:
-            del self.procesos_activos["Calculadora"]
+        if self.instance_id in self.procesos_activos:
+            del self.procesos_activos[self.instance_id]
         self.desktop_app.actualizar_procesos_activos()
 
     def calcular_memoria_calculadora(self):
+        """Calcula la memoria utilizada por la calculadora."""
         memoria_base = 20
         memoria_adicional = len(self.calculator_frame.winfo_children()) * 2
         return memoria_base + memoria_adicional
 
     def hilo_calculadora(self, cola):
+        """Hilo para manejar mensajes de la cola."""
         while True:
             mensaje = cola.get()
             if mensaje == "cerrar":
                 break
 
 
+
+
+
+
+
+
+
+
+
+
 class FileExplorerApp:
+    instance_counter = 0  # Contador estático para generar identificadores únicos
+
     def __init__(self, desktop_app, initial_path=None):
         self.desktop_app = desktop_app
         self.explorer_frame = tk.Frame(self.desktop_app.window, bg="lightgray", width=600, height=400)
@@ -640,8 +711,29 @@ class FileExplorerApp:
         self.explorer_frame.pack(padx=10, pady=10)
 
         self.current_path = initial_path or self.desktop_app.auth.cargar_directorio_usuario()
+
+        # Asignar un identificador único a esta instancia
+        FileExplorerApp.instance_counter += 1
+        self.instance_id = f"Explorador {FileExplorerApp.instance_counter}"
+
+        # Cola y evento para controlar el hilo
+        self.evento_cierre = threading.Event()
+        self.cola = queue.Queue()
+
         self.setup_ui()
         self.display_directory(self.current_path)
+
+        # Registrar el proceso en el Administrador de Tareas
+        memoria_usada = self.calcular_memoria_explorador()
+        self.hilo = threading.Thread(target=self.hilo_explorador, daemon=True)
+        self.hilo.start()
+        self.desktop_app.procesos_activos[self.instance_id] = {
+            "frame": self.explorer_frame,
+            "memoria": memoria_usada,
+            "hilo": self.hilo,
+            "cola": self.cola,
+        }
+        self.desktop_app.actualizar_procesos_activos()
 
     def setup_ui(self):
         # Encabezado y botón cerrar
@@ -683,6 +775,14 @@ class FileExplorerApp:
 
     def display_directory(self, path):
         """Muestra el contenido del directorio."""
+        # Verifica restricciones para usuarios no administradores
+        if not self.desktop_app.auth.es_admin():
+            base_path = self.desktop_app.auth.cargar_directorio_usuario()
+            if not path.startswith(base_path):
+                messagebox.showwarning("Acceso Restringido", "No tienes permiso para acceder a este directorio.")
+                return
+
+        # Limpiar contenido previo
         for widget in self.inner_frame.winfo_children():
             widget.destroy()
 
@@ -709,6 +809,8 @@ class FileExplorerApp:
                     self.create_icon(item, item_path, row, col, icon_type="music")
                 elif ext == ".txt":
                     self.create_icon(item, item_path, row, col, icon_type="text")
+                elif ext in [".mp4", ".avi", ".mkv"]:
+                    self.create_icon(item, item_path, row, col, icon_type="video")
 
             col += 1
             if col >= max_columns:
@@ -725,6 +827,7 @@ class FileExplorerApp:
             "image": "🖼️",
             "music": "🎵",
             "text": "📄",
+            "video": "🎥",
         }
 
         icon = tk.Label(frame, text=icon_dict.get(icon_type, "❓"), font=("Arial", 24), bg="white")
@@ -747,10 +850,18 @@ class FileExplorerApp:
             MusicPlayerApp(self.desktop_app, path=path)
         elif item_type == "text":
             TextApp(self.desktop_app, file_path=path)
+        elif item_type == "video":
+            VideoPlayerApp(self.desktop_app, video_path=path)
 
     def go_back(self):
         """Regresa al directorio anterior."""
         parent_dir = os.path.dirname(self.current_path)
+        base_path = self.desktop_app.auth.cargar_directorio_usuario()
+
+        if not self.desktop_app.auth.es_admin() and not parent_dir.startswith(base_path):
+            messagebox.showwarning("Acceso Restringido", "No puedes retroceder más allá de tu directorio base.")
+            return
+
         if parent_dir and parent_dir != self.current_path:
             self.display_directory(parent_dir)
 
@@ -768,12 +879,37 @@ class FileExplorerApp:
             except Exception as e:
                 messagebox.showerror("Error", f"No se pudo subir el archivo: {e}")
 
+    def calcular_memoria_explorador(self):
+        """Calcula la memoria usada por el explorador."""
+        memoria_base = 50
+        num_items = len(self.inner_frame.winfo_children()) * 2
+        return memoria_base + num_items
+
+    def hilo_explorador(self):
+        """Ejecuta un hilo para escuchar eventos de cierre."""
+        while not self.evento_cierre.is_set():
+            try:
+                mensaje = self.cola.get(timeout=0.1)
+                if mensaje == "cerrar":
+                    break
+            except queue.Empty:
+                continue
+
     def close_explorer(self):
         """Cierra el explorador de archivos."""
+        self.evento_cierre.set()
+        if self.instance_id in self.desktop_app.procesos_activos:
+            del self.desktop_app.procesos_activos[self.instance_id]
         self.explorer_frame.pack_forget()
-        if "Explorador de Archivos" in self.desktop_app.procesos_activos:
-            del self.desktop_app.procesos_activos["Explorador de Archivos"]
         self.desktop_app.actualizar_procesos_activos()
+
+
+
+
+
+
+
+
 
 
 
@@ -813,21 +949,25 @@ class TaskManager:
 
     def cerrar_proceso(self, proceso):
         if proceso in self.procesos_activos:
-            frame = self.procesos_activos[proceso]["frame"]
-            hilo = self.procesos_activos[proceso]["hilo"]
-            cola = self.procesos_activos[proceso]["cola"]
-
-
+            proceso_data = self.procesos_activos[proceso]
+            frame = proceso_data["frame"]
+            
+            # Verificar si existe "hilo" y "cola"
+            hilo = proceso_data.get("hilo", None)
+            cola = proceso_data.get("cola", None)
+            
             if frame:
                 frame.pack_forget()
+            
+            # Cerrar cola e hilo si existen
             if cola:
                 cola.put("cerrar")
             if hilo and hilo.is_alive():
-                hilo.join()
-
-
+                hilo.join(timeout=1)
+            
+            # Eliminar proceso activo
             del self.procesos_activos[proceso]
-        self.mostrar()
+            self.mostrar()
 
 
     def ocultar(self):
@@ -933,7 +1073,16 @@ class WorldTimeApp:
         num_items = len(self.hora_frame.winfo_children()) * 1
         return memoria_base + num_items
     
+
+
+
+
+
+
+
 class TextApp:
+    instance_counter = 0  # Contador para asignar identificadores únicos a las instancias
+
     def __init__(self, desktop_app, file_path=None):
         self.desktop_app = desktop_app
         self.text_frame = tk.Frame(self.desktop_app.window, bg="lightgray", width=500, height=400)
@@ -941,18 +1090,30 @@ class TextApp:
         self.text_frame.pack(padx=10, pady=10)
 
         self.file_path = file_path
-        self.procesos_activos = self.desktop_app.procesos_activos
+
+        # Asignar un identificador único a la instancia
+        TextApp.instance_counter += 1
+        self.instance_id = f"Editor de Texto {TextApp.instance_counter}"
 
         self.setup_ui()
         if file_path:
             self.load_file(file_path)
+
+        # Registrar el proceso en el Administrador de Tareas
+        memoria_usada = self.calcular_memoria_editor()
+        self.desktop_app.procesos_activos[self.instance_id] = {
+            "frame": self.text_frame,
+            "memoria": memoria_usada,
+            "app": self,
+        }
+        self.desktop_app.actualizar_procesos_activos()
 
     def setup_ui(self):
         # Encabezado y botón cerrar
         top_frame = tk.Frame(self.text_frame, bg="lightgray")
         top_frame.pack(fill="x")
         close_button = tk.Button(
-            top_frame, text="X", command=self.close_text_editor, 
+            top_frame, text="X", command=self.close_text_editor,
             bg="red", fg="white", font=("Arial", 12, "bold")
         )
         close_button.pack(side="right")
@@ -967,9 +1128,9 @@ class TextApp:
         self.file_name_entry.pack(side="left", padx=5, fill="x", expand=True)
 
         save_button = tk.Button(
-            title_frame, 
-            text="Guardar", 
-            command=self.save_file, 
+            title_frame,
+            text="Guardar",
+            command=self.save_file,
             bg="blue", fg="white", font=("Arial", 12)
         )
         save_button.pack(side="left", padx=5)
@@ -988,17 +1149,16 @@ class TextApp:
                 file_name = os.path.basename(path)
                 self.file_name_entry.insert(0, file_name)
         except Exception as e:
-            messagebox.showerror("Error", f"No se pudo cargar el archivo: {e}")
+            self.show_message(f"Error al cargar archivo: {e}", "red")
 
     def save_file(self):
         """Guarda el archivo de texto en la carpeta 'Documentos' del usuario."""
         file_name = self.file_name_entry.get().strip()
         if not file_name:
-            
-            messagebox.showerror("Error", "Por favor, ingresa un nombre para el archivo.")
+            self.show_message("Por favor, ingresa un nombre para el archivo.", "red")
             return
 
-        file_name = file_name+".txt"
+        file_name += ".txt"
         # Definir ruta de guardado
         user_directory = self.desktop_app.auth.cargar_directorio_usuario()
         documents_directory = os.path.join(user_directory, "Documentos")
@@ -1011,17 +1171,27 @@ class TextApp:
             with open(file_path, 'w', encoding="utf-8") as file:
                 content = self.text_area.get(1.0, tk.END).strip()
                 file.write(content)
-            messagebox.showinfo("Guardado exitoso", f"Archivo guardado en {file_path}")
+            self.show_message(f"Guardado en: {file_path}", "green")
         except Exception as e:
-            messagebox.showerror("Error", f"No se pudo guardar el archivo: {e}")
+            self.show_message(f"Error al guardar archivo: {e}", "red")
+
+    def calcular_memoria_editor(self):
+        """Calcula la memoria usada por el editor."""
+        memoria_base = 30
+        elementos_extra = len(self.text_frame.winfo_children())
+        return memoria_base + elementos_extra
 
     def close_text_editor(self):
-        """Cierra el editor de texto."""
+        """Cierra el editor de texto desde cualquier parte."""
+        if self.instance_id in self.desktop_app.procesos_activos:
+            del self.desktop_app.procesos_activos[self.instance_id]
         self.text_frame.pack_forget()
-        if "Editor de Texto" in self.procesos_activos:
-            del self.procesos_activos["Editor de Texto"]
         self.desktop_app.actualizar_procesos_activos()
 
+    def show_message(self, message, color):
+        """Muestra mensajes informativos en la ventana de texto."""
+        msg_label = tk.Label(self.text_frame, text=message, fg=color, bg="lightgray", font=("Arial", 10))
+        msg_label.pack(pady=5, anchor="w")
 
 
 
@@ -1033,6 +1203,8 @@ class TextApp:
 
 
 class MusicPlayerApp:
+    instance_counter = 0  # Contador para asignar identificadores únicos a las instancias
+
     def __init__(self, desktop_app, path=None):
         self.desktop_app = desktop_app
         self.music_frame = tk.Frame(self.desktop_app.window, bg="lightgray", width=300, height=200)
@@ -1043,12 +1215,16 @@ class MusicPlayerApp:
         self.is_playing = False
         self.is_paused = False
         self.audio_length = 0
-        self.slider_locked = False  # Controla si el slider está siendo ajustado manualmente
-        self.playlist = []  # Lista de canciones
-        self.current_index = 0  # Índice de la canción actual
+        self.slider_locked = False
+        self.playlist = []
+        self.current_index = 0
+
+        # Identificador único para esta instancia
+        MusicPlayerApp.instance_counter += 1
+        self.instance_id = f"Reproductor {MusicPlayerApp.instance_counter}"
 
         pygame.mixer.init()
-        pygame.mixer.music.set_volume(0.5)  # Volumen inicial al 50%
+        pygame.mixer.music.set_volume(0.5)
 
         self.setup_ui()
 
@@ -1058,15 +1234,31 @@ class MusicPlayerApp:
         else:
             self.load_default_directory()
 
+        # Registrar el proceso en el Administrador de Tareas
+        memoria_usada = self.calcular_memoria_reproductor()
+        hilo = threading.Thread(target=self.hilo_reproductor, daemon=True)
+        hilo.start()
+        self.desktop_app.procesos_activos[self.instance_id] = {
+            "frame": self.music_frame,
+            "memoria": memoria_usada,
+            "hilo": hilo,
+            "app": self,
+        }
+        self.desktop_app.actualizar_procesos_activos()
+
     def setup_ui(self):
         # Encabezado y botón cerrar
         top_frame = tk.Frame(self.music_frame, bg="lightgray")
         top_frame.pack(fill="x")
-        close_button = tk.Button(top_frame, text="X", command=self.close_music_player, bg="red", fg="white")
+        close_button = tk.Button(
+            top_frame, text="X", command=self.close_music_player, bg="red", fg="white"
+        )
         close_button.pack(side="right")
 
         # Visor de información
-        self.song_label = tk.Label(self.music_frame, text="Ningún archivo cargado", bg="lightgray", anchor="center", wraplength=250)
+        self.song_label = tk.Label(
+            self.music_frame, text="Ningún archivo cargado", bg="lightgray", anchor="center", wraplength=250
+        )
         self.song_label.pack(pady=5)
 
         # Botones de control
@@ -1094,7 +1286,7 @@ class MusicPlayerApp:
 
         # Slider de volumen
         self.volume = ttk.Scale(sliders_frame, from_=0, to=1, orient="horizontal", command=self.set_volume, length=80)
-        self.volume.set(0.5)  # Volumen inicial
+        self.volume.set(0.5)
         self.volume.grid(row=0, column=1, sticky="e", padx=5)
 
         # Tiempo de reproducción
@@ -1105,22 +1297,18 @@ class MusicPlayerApp:
         """Carga canciones desde el directorio por defecto del usuario."""
         user_directory = self.desktop_app.auth.cargar_directorio_usuario()
         if not user_directory:
-            messagebox.showerror("Error", "No se encontró el directorio del usuario.")
+            self.song_label.config(text="Error: No se encontró el directorio del usuario.")
             return
 
         music_directory = os.path.join(user_directory, "Música")
         if not os.path.exists(music_directory):
-            messagebox.showerror("Error", "No se encontró la carpeta 'Música'.")
+            self.song_label.config(text="Error: No se encontró la carpeta 'Música'.")
             return
 
         self.load_from_path(music_directory)
 
     def load_from_path(self, path):
-        """
-        Carga canciones desde un directorio o desde un archivo.
-        Si `path` es un archivo, carga la canción y las demás canciones del directorio.
-        Si `path` es un directorio, carga todas las canciones de ese directorio.
-        """
+        """Carga canciones desde un directorio o un archivo."""
         if os.path.isfile(path):
             directory = os.path.dirname(path)
             self.playlist = [
@@ -1137,11 +1325,11 @@ class MusicPlayerApp:
             ]
             self.current_index = 0
         else:
-            messagebox.showerror("Error", f"No se puede cargar: {path}")
+            self.song_label.config(text="Error: No se puede cargar el archivo o directorio.")
             return
 
         if not self.playlist:
-            messagebox.showinfo("Información", "No se encontraron archivos de audio en la carpeta.")
+            self.song_label.config(text="No se encontraron archivos de audio en la carpeta.")
             return
 
         self.load_file(self.playlist[self.current_index])
@@ -1156,7 +1344,7 @@ class MusicPlayerApp:
         self.time_label.config(
             text=f"00:00 / {time.strftime('%M:%S', time.gmtime(self.audio_length))}"
         )
-        self.stop_music()  # Detener la música antes de reproducir otra
+        self.stop_music()
 
     def play_pause_music(self):
         if not self.current_file:
@@ -1177,7 +1365,6 @@ class MusicPlayerApp:
             self.play_button.config(text="▶️")
 
     def play_next(self):
-        """Reproduce la siguiente canción en la lista."""
         if not self.playlist:
             return
         self.current_index = (self.current_index + 1) % len(self.playlist)
@@ -1185,7 +1372,6 @@ class MusicPlayerApp:
         self.play_pause_music()
 
     def play_prev(self):
-        """Reproduce la canción anterior en la lista."""
         if not self.playlist:
             return
         self.current_index = (self.current_index - 1) % len(self.playlist)
@@ -1200,11 +1386,9 @@ class MusicPlayerApp:
         self.time_label.config(text="00:00 / 00:00")
 
     def set_volume(self, value):
-        volume = float(value)
-        pygame.mixer.music.set_volume(volume)
+        pygame.mixer.music.set_volume(float(value))
 
     def on_slider_move(self, value):
-        """Actualiza el tiempo mientras el usuario mueve el slider."""
         if self.slider_locked:
             current_time = int(float(value))
             self.time_label.config(
@@ -1212,11 +1396,9 @@ class MusicPlayerApp:
             )
 
     def on_slider_press(self, event):
-        """Bloquea la actualización automática mientras el usuario ajusta el slider."""
         self.slider_locked = True
 
     def on_slider_release(self, event):
-        """Ajusta la posición de la música y desbloquea la actualización automática."""
         self.slider_locked = False
         if self.current_file:
             new_position = int(self.progress.get())
@@ -1233,17 +1415,45 @@ class MusicPlayerApp:
                     )
             time.sleep(1)
 
+    def calcular_memoria_reproductor(self):
+        """Calcula la memoria usada por el reproductor."""
+        memoria_base = 50
+        elementos_extra = len(self.music_frame.winfo_children())
+        return memoria_base + elementos_extra
+
+    def hilo_reproductor(self):
+        while self.is_playing:
+            time.sleep(1)
+
     def close_music_player(self):
         self.stop_music()
+        if self.instance_id in self.desktop_app.procesos_activos:
+            del self.desktop_app.procesos_activos[self.instance_id]
         self.music_frame.pack_forget()
+        self.desktop_app.actualizar_procesos_activos()
+
+
+
+
+
+
+
+
+
 
 
 
 
 
 class ImageViewerApp:
+    instance_counter = 0
+
     def __init__(self, desktop_app, path=None):
         self.desktop_app = desktop_app
+        self.instance_id = f"Visualizador {ImageViewerApp.instance_counter}"
+        ImageViewerApp.instance_counter += 1
+
+        # Crear el marco principal
         self.image_frame = tk.Frame(self.desktop_app.window, bg="lightgray", width=600, height=400)
         self.image_frame.pack_propagate(False)
         self.image_frame.pack(padx=10, pady=10)
@@ -1260,14 +1470,24 @@ class ImageViewerApp:
         else:
             self.load_images_from_user_directory()
 
+        # Registrar la aplicación en el Administrador de Tareas
+        memoria_usada = self.calcular_memoria()
+        self.desktop_app.procesos_activos[self.instance_id] = {
+            "frame": self.image_frame,
+            "close_method": self.close_image_viewer,
+            "memoria": memoria_usada,
+        }
+        self.desktop_app.actualizar_procesos_activos()
+
     def setup_ui(self):
         # Encabezado y botón cerrar
         top_frame = tk.Frame(self.image_frame, bg="lightgray")
         top_frame.pack(fill="x")
+
         close_button = tk.Button(top_frame, text="X", command=self.close_image_viewer, bg="red", fg="white")
         close_button.pack(side="right")
 
-        # Canvas para mostrar la imagen
+        # Canvas para mostrar la imagen o mensajes
         self.canvas = tk.Canvas(self.image_frame, bg="white", width=600, height=300)
         self.canvas.pack(fill="both", expand=True, padx=10, pady=10)
 
@@ -1287,12 +1507,9 @@ class ImageViewerApp:
         self.next_button = tk.Button(controls_frame, text="⟶", command=self.show_next_image)
         self.next_button.grid(row=0, column=2, padx=5)
 
-
-
     def load_from_path(self, path):
         """Carga una imagen específica o todas las imágenes de un directorio."""
         if os.path.isfile(path):
-            # Si es un archivo, carga solo este archivo y su directorio
             directory = os.path.dirname(path)
             self.image_paths = [
                 os.path.join(directory, file)
@@ -1301,7 +1518,6 @@ class ImageViewerApp:
             ]
             self.current_index = self.image_paths.index(path)
         elif os.path.isdir(path):
-            # Si es un directorio, carga todas las imágenes del directorio
             self.image_paths = [
                 os.path.join(path, file)
                 for file in os.listdir(path)
@@ -1310,19 +1526,19 @@ class ImageViewerApp:
             self.current_index = 0
 
         if not self.image_paths:
-            messagebox.showinfo("Información", "No se encontraron imágenes en el directorio.")
+            self.show_message("No se encontraron imágenes.")
             return
 
         self.images = [Image.open(image_path) for image_path in self.image_paths]
         self.zoom_level = 1.0
-        self.zoom_slider.set(self.zoom_level)  # Asegurarse de sincronizar el slider con el zoom inicial
+        self.zoom_slider.set(self.zoom_level)
         self.display_image()
 
     def load_images_from_user_directory(self):
         """Carga imágenes de la carpeta 'Imágenes' del usuario."""
         user_directory = self.desktop_app.auth.cargar_directorio_usuario()
         if not user_directory:
-            messagebox.showerror("Error", "No se encontró el directorio del usuario.")
+            self.show_message("Directorio de usuario no encontrado.")
             return
 
         images_directory = os.path.join(user_directory, "Imágenes")
@@ -1334,7 +1550,6 @@ class ImageViewerApp:
             return
 
         image = self.images[self.current_index]
-        # Asegurarse de aplicar el zoom inicial correctamente
         zoomed_image = image.resize(
             (int(image.width * self.zoom_level), int(image.height * self.zoom_level)), Image.Resampling.LANCZOS
         )
@@ -1353,7 +1568,7 @@ class ImageViewerApp:
         if self.images:
             self.current_index = (self.current_index - 1) % len(self.images)
             self.zoom_level = 1.0
-            self.zoom_slider.set(self.zoom_level)  # Sincronizar el slider
+            self.zoom_slider.set(self.zoom_level)
             self.display_image()
 
     def show_next_image(self):
@@ -1361,7 +1576,7 @@ class ImageViewerApp:
         if self.images:
             self.current_index = (self.current_index + 1) % len(self.images)
             self.zoom_level = 1.0
-            self.zoom_slider.set(self.zoom_level)  # Sincronizar el slider
+            self.zoom_slider.set(self.zoom_level)
             self.display_image()
 
     def update_zoom(self, value):
@@ -1369,11 +1584,23 @@ class ImageViewerApp:
         self.zoom_level = float(value)
         self.display_image()
 
+    def show_message(self, message):
+        """Muestra un mensaje en el canvas."""
+        self.canvas.delete("all")
+        self.canvas.create_text(
+            300, 150, text=message, fill="red", font=("Arial", 16)
+        )
+
+    def calcular_memoria(self):
+        """Calcula la memoria utilizada por el visor de imágenes."""
+        memoria_base = 50
+        return memoria_base + len(self.image_paths) * 5
+
     def close_image_viewer(self):
         """Cierra el visor de imágenes."""
         self.image_frame.pack_forget()
-        if "Visualizador" in self.desktop_app.procesos_activos:
-            del self.desktop_app.procesos_activos["Visualizador"]
+        if self.instance_id in self.desktop_app.procesos_activos:
+            del self.desktop_app.procesos_activos[self.instance_id]
         self.desktop_app.actualizar_procesos_activos()
 
 
@@ -1385,8 +1612,13 @@ class ImageViewerApp:
 
 
 class SnakeApp:
+    instance_counter = 0  # Contador para instancias únicas
+
     def __init__(self, desktop_app):
         self.desktop_app = desktop_app
+        self.instance_id = f"Snake {SnakeApp.instance_counter}"
+        SnakeApp.instance_counter += 1
+
         self.snake_frame = tk.Frame(self.desktop_app.window, bg="lightgray", width=800, height=600)
         self.snake_frame.pack_propagate(False)
         self.snake_frame.pack(padx=10, pady=10)
@@ -1402,6 +1634,15 @@ class SnakeApp:
 
         self.setup_ui()
         self.reset_game()
+
+        # Registrar en el Administrador de Tareas
+        memoria_usada = self.calcular_memoria()
+        self.desktop_app.procesos_activos[self.instance_id] = {
+            "frame": self.snake_frame,
+            "close_method": self.close_snake_game,
+            "memoria": memoria_usada,
+        }
+        self.desktop_app.actualizar_procesos_activos()
 
     def setup_ui(self):
         # Encabezado y botones
@@ -1479,7 +1720,6 @@ class SnakeApp:
         """Coloca la comida en una posición aleatoria que no choque con la serpiente."""
         while True:
             self.food = (random.randint(2, self.grid_size - 2), random.randint(2, self.grid_size - 2))
-            print(self.food)
             if self.food not in self.snake:
                 break
 
@@ -1514,7 +1754,6 @@ class SnakeApp:
         new_head = (head_x, head_y)
         self.snake.append(new_head)
 
-        # Si la serpiente no come, elimina el último segmento
         if new_head == self.food:
             self.score += 1
             self.place_food()
@@ -1555,15 +1794,307 @@ class SnakeApp:
         self.paused = False
         self.message_label.config(text=f"Game Over - Puntuación final: {self.score}")
 
+    def calcular_memoria(self):
+        """Calcula la memoria utilizada por el juego."""
+        memoria_base = 30
+        return memoria_base + len(self.snake) * 5
+
     def close_snake_game(self):
         """Cierra la ventana del juego."""
         self.running = False
         self.snake_frame.pack_forget()
-        if "Snake" in self.desktop_app.procesos_activos:
-            del self.desktop_app.procesos_activos["Snake"]
+        if self.instance_id in self.desktop_app.procesos_activos:
+            del self.desktop_app.procesos_activos[self.instance_id]
         self.desktop_app.actualizar_procesos_activos()
 
 
+
+
+
+
+
+
+class BrowserApp:
+    instance_counter = 0  # Contador de instancias únicas
+
+    def __init__(self, desktop_app, initial_url="https://www.google.com"):
+        self.desktop_app = desktop_app
+        self.instance_id = f"Navegador {BrowserApp.instance_counter}"
+        BrowserApp.instance_counter += 1
+
+        self.browser_frame = tk.Frame(self.desktop_app.window, bg="white", width=800, height=600)
+        self.browser_frame.pack_propagate(False)
+        self.browser_frame.pack(padx=10, pady=10)
+
+        self.initial_url = initial_url
+        self.setup_ui()
+        self.load_url(self.initial_url)
+
+        # Registrar en el Administrador de Tareas
+        memoria_usada = self.calcular_memoria()
+        self.desktop_app.procesos_activos[self.instance_id] = {
+            "frame": self.browser_frame,
+            "close_method": self.close_browser,
+            "memoria": memoria_usada,
+        }
+        self.desktop_app.actualizar_procesos_activos()
+
+    def setup_ui(self):
+        # Encabezado y botón cerrar
+        top_frame = tk.Frame(self.browser_frame, bg="lightgray")
+        top_frame.pack(fill="x")
+
+        close_button = tk.Button(
+            top_frame, text="X", command=self.close_browser, bg="red", fg="white", font=("Arial", 12, "bold")
+        )
+        close_button.pack(side="right", padx=5)
+
+        self.address_bar = tk.Entry(top_frame, font=("Arial", 12))
+        self.address_bar.pack(side="left", fill="x", expand=True, padx=5, pady=5)
+
+        go_button = tk.Button(top_frame, text="Ir", command=self.go_to_url, bg="blue", fg="white", font=("Arial", 10))
+        go_button.pack(side="right", padx=5)
+
+        # Marco HTML para mostrar contenido
+        self.html_view = HtmlFrame(self.browser_frame)
+        self.html_view.pack(fill="both", expand=True)
+
+    def load_url(self, url):
+        """Carga una URL en el navegador."""
+        try:
+            self.html_view.load_website(url)
+        except Exception as e:
+            print(f"Error al cargar la URL: {e}")
+
+    def go_to_url(self):
+        """Obtiene la URL del cuadro de texto y la carga."""
+        url = self.address_bar.get().strip()
+        if not url.startswith("http://") and not url.startswith("https://"):
+            url = "http://" + url
+        self.load_url(url)
+
+    def calcular_memoria(self):
+        """Calcula la memoria utilizada por el navegador."""
+        memoria_base = 50
+        return memoria_base
+
+    def close_browser(self):
+        """Cierra el navegador."""
+        self.browser_frame.pack_forget()
+        if self.instance_id in self.desktop_app.procesos_activos:
+            del self.desktop_app.procesos_activos[self.instance_id]
+        self.desktop_app.actualizar_procesos_activos()
+
+
+
+
+
+class VideoPlayerApp:
+    instance_counter = 0
+
+    def __init__(self, desktop_app, video_path=None):
+        self.desktop_app = desktop_app
+        # Aumentamos las dimensiones de la ventana
+        self.video_frame = tk.Frame(self.desktop_app.window, bg="lightgray", width=900, height=600)
+        self.video_frame.pack_propagate(False)
+        self.video_frame.pack(padx=10, pady=10)
+
+        self.video_path = None
+        self.video_capture = None
+        self.playing = False
+        self.paused = False
+        self.current_time = 0
+        self.total_time = 0
+        self.thread = None
+        self.stop_thread = threading.Event()
+
+        self.instance_id = f"VideoPlayer_{VideoPlayerApp.instance_counter}"
+        VideoPlayerApp.instance_counter += 1
+
+        self.setup_ui()
+
+        if video_path:
+            self.load_video(video_path)
+
+        # Registro en el administrador de tareas
+        memoria_usada = self.calcular_memoria()
+        self.desktop_app.procesos_activos[self.instance_id] = {
+            "frame": self.video_frame,
+            "memoria": memoria_usada,
+            "hilo": self.thread,
+        }
+        self.desktop_app.actualizar_procesos_activos()
+
+    def setup_ui(self):
+        # Encabezado con botón de cerrar
+        top_frame = tk.Frame(self.video_frame, bg="lightgray")
+        top_frame.pack(fill="x")
+        close_button = tk.Button(
+            top_frame, text="X", command=self.close_video_player, bg="red", fg="white", font=("Arial", 12, "bold")
+        )
+        close_button.pack(side="right")
+
+        # Canvas para mostrar el video
+        # Aumentamos el tamaño del lienzo
+        self.canvas = tk.Canvas(self.video_frame, bg="black", width=850, height=450)
+        self.canvas.pack(fill="both", expand=True, padx=10, pady=10)
+
+        # Controles de reproducción
+        controls_frame = tk.Frame(self.video_frame, bg="lightgray")
+        controls_frame.pack(fill="x", padx=10, pady=5)
+
+        self.play_button = tk.Button(controls_frame, text="▶️", command=self.toggle_play_pause, width=5)
+        self.play_button.grid(row=0, column=0, padx=5)
+
+        open_button = tk.Button(controls_frame, text="📂", command=self.open_file, width=5)
+        open_button.grid(row=0, column=2, padx=5)
+
+        # Escala y controles más amplios para adaptarse al nuevo tamaño
+        self.slider = ttk.Scale(
+            controls_frame, from_=0, to=100, orient="horizontal",
+        )
+        self.slider.grid(row=0, column=3, sticky="we", padx=10)
+        controls_frame.columnconfigure(3, weight=1)
+
+        self.time_label = tk.Label(controls_frame, text="00:00 / 00:00", bg="lightgray")
+        self.time_label.grid(row=0, column=4, padx=5)
+
+    def open_file(self):
+        """Abre un archivo de video desde el sistema de archivos."""
+        file_path = filedialog.askopenfilename(
+            filetypes=[("Archivos de video", "*.mp4 *.avi *.mkv *.mov")]
+        )
+        if file_path:
+            self.load_video(file_path)
+
+    def load_video(self, video_path):
+        """Carga un video desde una ruta proporcionada."""
+        self.stop_video()  # Detén cualquier video en reproducción
+
+        try:
+            # Crear un nuevo objeto de captura
+            video_capture = cv2.VideoCapture(video_path)
+
+            # Validar si el video se abrió correctamente
+            if not video_capture.isOpened():
+                raise ValueError("No se pudo abrir el video. El archivo puede estar corrupto o no compatible.")
+
+            total_frames = int(video_capture.get(cv2.CAP_PROP_FRAME_COUNT))
+            fps = video_capture.get(cv2.CAP_PROP_FPS)
+
+            if total_frames == 0 or fps == 0:
+                raise ValueError("El archivo de video no contiene datos reproducibles.")
+
+            # Liberar recursos del video anterior
+            if self.video_capture:
+                self.video_capture.release()
+
+            # Asignar el nuevo video
+            self.video_capture = video_capture
+            self.video_path = video_path
+            self.total_time = total_frames / fps
+            self.slider.config(to=self.total_time)
+
+            # Actualizar la etiqueta de tiempo
+            self.update_time_label()
+            self.play_video()
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo cargar el video: {e}")
+            if self.video_capture:
+                self.video_capture.release()
+            self.video_capture = None
+
+
+    def play_video(self):
+        """Inicia la reproducción del video."""
+        if not self.video_capture or self.playing:
+            return
+
+        self.playing = True
+        self.paused = False
+        self.stop_thread.clear()
+        self.thread = threading.Thread(target=self._play_video_thread, daemon=True)
+        self.thread.start()
+
+    def _play_video_thread(self):
+        """Hilo de reproducción de video."""
+        try:
+            while self.playing and not self.stop_thread.is_set():
+                if self.paused:
+                    time.sleep(0.1)
+                    continue
+
+                ret, frame = self.video_capture.read()
+                if not ret:
+                    break
+
+                self.current_time += 1 / self.video_capture.get(cv2.CAP_PROP_FPS)
+                self.slider.set(self.current_time)
+
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                image = Image.fromarray(frame)
+                tk_image = ImageTk.PhotoImage(image)
+
+                self.canvas.create_image(0, 0, anchor="nw", image=tk_image)
+                self.canvas.image = tk_image
+                self.canvas.update()
+
+                time.sleep(1 / self.video_capture.get(cv2.CAP_PROP_FPS))
+        except Exception as e:
+            print(f"Error durante la reproducción del video: {e}")
+
+        self.stop_video()
+
+    def toggle_play_pause(self):
+        """Pausa o reanuda la reproducción del video."""
+        if self.playing:
+            self.paused = not self.paused
+            self.play_button.config(text="▶️" if self.paused else "⏸")
+
+    def stop_video(self):
+        """Detiene la reproducción del video."""
+        self.playing = False
+        self.paused = False
+        self.stop_thread.set()
+        if self.video_capture:
+            self.video_capture.release()
+            self.video_capture = None
+
+        self.current_time = 0
+        self.slider.set(self.current_time)
+        self.canvas.delete("all")
+
+    def on_slider_move(self, value):
+        """Actualiza la posición del video cuando se mueve el slider."""
+        try:
+            new_time = float(value)
+            self.current_time = new_time
+            self.update_time_label()
+            if self.video_capture:
+                self.video_capture.set(cv2.CAP_PROP_POS_MSEC, new_time * 1000)
+        except Exception:
+            pass
+
+    def update_time_label(self):
+        """Actualiza el texto del temporizador."""
+        current_time_str = time.strftime("%M:%S", time.gmtime(self.current_time))
+        total_time_str = time.strftime("%M:%S", time.gmtime(self.total_time))
+        self.time_label.config(text=f"{current_time_str} / {total_time_str}")
+
+    def close_video_player(self):
+        """Cierra el reproductor de video y elimina la instancia."""
+        self.stop_video()
+        self.video_frame.pack_forget()
+        if self.instance_id in self.desktop_app.procesos_activos:
+            del self.desktop_app.procesos_activos[self.instance_id]
+        self.desktop_app.actualizar_procesos_activos()
+
+    def calcular_memoria(self):
+        """Calcula la memoria utilizada por el reproductor de video."""
+        memoria_base = 50
+        if self.video_capture:
+            memoria_base += int(self.video_capture.get(cv2.CAP_PROP_FRAME_COUNT)) * 0.01
+        return memoria_base
 
 
 if __name__ == "__main__":
